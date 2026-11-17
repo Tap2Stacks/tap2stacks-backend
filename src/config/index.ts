@@ -32,6 +32,7 @@ export const envVarsSchema = Joi.object()
     RUN_SETTLEMENT: Joi.boolean().default(true),
     PROOF_ANCHOR_ENABLED: Joi.boolean().default(true),
     GEOFENCE_ENABLED: Joi.boolean().default(false),
+    TRUSTED_PROXY_HOPS: Joi.number().integer().min(1).empty('').optional(),
     DEV_FAUCET_ENABLED: Joi.boolean().default(false),
 
     JWT_SECRET: Joi.string().required(),
@@ -93,6 +94,10 @@ export function parseEnv(rawEnv: NodeJS.ProcessEnv = process.env) {
       geofenceEnabled:
         envVars.GEOFENCE_ENABLED === true ||
         envVars.GEOFENCE_ENABLED === 'true',
+      trustedProxyHops:
+        envVars.TRUSTED_PROXY_HOPS === undefined
+          ? null
+          : Number(envVars.TRUSTED_PROXY_HOPS),
       devFaucetEnabled:
         envVars.DEV_FAUCET_ENABLED === true ||
         envVars.DEV_FAUCET_ENABLED === 'true',

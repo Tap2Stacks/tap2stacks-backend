@@ -8,9 +8,16 @@ import {
 } from '@nestjs/websockets';
 import { Server, Socket } from 'socket.io';
 import { Logger } from '@nestjs/common';
-import { EventName, getUserRoom, PlaceOrderPayload, SubscribeUserPayload } from './types';
+import {
+  EventName,
+  getUserRoom,
+  PlaceOrderPayload,
+  SubscribeUserPayload,
+} from './types';
 import { AuthService } from '../auth/auth.service';
 import { OrderService } from '../order/order.service';
+import { env } from 'src/config';
+import { socketGeofence } from '../player/geofence.middleware';
 import { getCellId } from 'src/libs/cell';
 
 @WebSocketGateway({
@@ -24,13 +31,18 @@ export class SocketGateway {
   constructor(
     private readonly authService: AuthService,
     private readonly orderService: OrderService,
-  ) {
-
-  }
+  ) {}
   @WebSocketServer() server: Server;
 
+  afterInit(server: Server) {
+    server.use(socketGeofence(env.flag.geofenceEnabled));
+  }
+
   @SubscribeMessage(EventName.SubscribeUser)
-  async handleSubscribeUser(@ConnectedSocket() client: Socket, @MessageBody() payload: SubscribeUserPayload) {
+  async handleSubscribeUser(
+    @ConnectedSocket() client: Socket,
+    @MessageBody() payload: SubscribeUserPayload,
+  ) {
     if (!payload?.userId || !payload?.signature) {
       client.send('Invalid wss signature');
       return;
@@ -41,7 +53,12 @@ export class SocketGateway {
 
     let isValid = false;
     try {
-      isValid = await this.authService.validateWssSignature(payload.userId, message, signature, true);
+      isValid = await this.authService.validateWssSignature(
+        payload.userId,
+        message,
+        signature,
+        true,
+      );
     } catch {
       isValid = false;
     }
@@ -56,11 +73,13 @@ export class SocketGateway {
     } else {
       client.send('Invalid wss signature');
     }
-
   }
 
   @SubscribeMessage(EventName.PlaceBet)
-  async handlePlaceBet(@ConnectedSocket() client: Socket, @MessageBody() payload: PlaceOrderPayload) {
+  async handlePlaceBet(
+    @ConnectedSocket() client: Socket,
+    @MessageBody() payload: PlaceOrderPayload,
+  ) {
     if (!payload?.userId || !payload?.cell || !payload?.userSignature) {
       client.send('Invalid wss signature');
       return;
@@ -71,7 +90,12 @@ export class SocketGateway {
 
     let isValid = false;
     try {
-      isValid = await this.authService.validateWssSignature(payload.userId, message, payload.userSignature, false);
+      isValid = await this.authService.validateWssSignature(
+        payload.userId,
+        message,
+        payload.userSignature,
+        false,
+      );
     } catch {
       isValid = false;
     }

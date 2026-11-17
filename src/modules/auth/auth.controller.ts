@@ -1,4 +1,14 @@
-import { Controller, Post, Get, Body, Query, UseGuards } from '@nestjs/common';
+import {
+  Controller,
+  Post,
+  Get,
+  Body,
+  Query,
+  Req,
+  UseGuards,
+} from '@nestjs/common';
+import { Request } from 'express';
+import { countryFromRequest } from '../player/geofence.middleware';
 import { AuthService } from './auth.service';
 import { JwtAuthGuard } from './guards/jwt-auth.guard';
 import { ApiTags, ApiOperation, ApiBearerAuth } from '@nestjs/swagger';
@@ -7,26 +17,41 @@ import { CurrentUser } from './decorators/current-user.decorator';
 @ApiTags('Auth')
 @Controller('auth')
 export class AuthController {
-    constructor(private readonly authService: AuthService) { }
+  constructor(private readonly authService: AuthService) {}
 
-    @Get('challenge')
-    @ApiOperation({ summary: 'Get a challenge message to sign' })
-    async getChallenge(@Query('address') address: string) {
-        const challenge = await this.authService.generateChallenge(address);
-        return { challenge };
-    }
+  @Get('challenge')
+  @ApiOperation({ summary: 'Get a challenge message to sign' })
+  async getChallenge(@Query('address') address: string) {
+    const challenge = await this.authService.generateChallenge(address);
+    return { challenge };
+  }
 
-    @Post('login')
-    @ApiOperation({ summary: 'Login with signed challenge' })
-    async login(@Body() body: { address: string; signature: string }) {
-        return this.authService.login(body.address, body.signature);
-    }
+  @Post('login')
+  @ApiOperation({ summary: 'Login with signed challenge' })
+  async login(
+    @Body()
+    body: {
+      address: string;
+      signature: string;
+      age18?: boolean;
+      notUS?: boolean;
+    },
+    @Req() req: Request,
+  ) {
+    return this.authService.login(
+      body.address,
+      body.signature,
+      body.age18,
+      body.notUS,
+      countryFromRequest(req.headers, req.socket.remoteAddress),
+    );
+  }
 
-    @Get('wss-key')
-    @UseGuards(JwtAuthGuard)
-    @ApiBearerAuth()
-    @ApiOperation({ summary: 'Get a new WSS key (requires JWT)' })
-    async getWssKey(@CurrentUser() user: { address: string }) {
-        return this.authService.generateWssKey(user.address);
-    }
+  @Get('wss-key')
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Get a new WSS key (requires JWT)' })
+  async getWssKey(@CurrentUser() user: { address: string }) {
+    return this.authService.generateWssKey(user.address);
+  }
 }

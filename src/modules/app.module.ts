@@ -1,4 +1,9 @@
-import { Module, OnModuleInit } from '@nestjs/common';
+import {
+  MiddlewareConsumer,
+  Module,
+  NestModule,
+  OnModuleInit,
+} from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
 import { ScheduleModule } from '@nestjs/schedule';
 import { TypeOrmModule } from '@nestjs/typeorm';
@@ -15,32 +20,42 @@ import { SocketModule } from './socket/socket.module';
 import { ProofModule } from './proof/proof.module';
 import { PricesModule } from './prices/prices.module';
 import { FeedModule } from './feed/feed.module';
+import { PaymasterModule } from './paymaster/paymaster.module';
+import { SessionModule } from './session/session.module';
+import { GeofenceMiddleware } from './player/geofence.middleware';
+import { PlayerModule } from './player/player.module';
 import { EngineModule } from './engine/engine.module';
 
 @Module({
-    imports: [
-        ScheduleModule.forRoot(),
-        ConfigModule.forRoot({ envFilePath: '.env', isGlobal: true }),
-        TypeOrmModule.forRoot(dataSource.options),
-        RedisModule.forRoot({
-            type: 'single',
-            url: env.redis.url,
-            options: {},
-        }),
-        HealthCheckModule,
-        AuthModule,
-        SocketModule,
-        AccountModule,
-        OrderModule,
-        PaymentModule,
-        ProofModule,
-        EngineModule,
-        FeedModule,
-        PricesModule,
-    ],
+  imports: [
+    ScheduleModule.forRoot(),
+    ConfigModule.forRoot({ envFilePath: '.env', isGlobal: true }),
+    TypeOrmModule.forRoot(dataSource.options),
+    RedisModule.forRoot({
+      type: 'single',
+      url: env.redis.url,
+      options: {},
+    }),
+    HealthCheckModule,
+    AuthModule,
+    SocketModule,
+    AccountModule,
+    OrderModule,
+    PaymentModule,
+    ProofModule,
+    EngineModule,
+    FeedModule,
+    PlayerModule,
+    SessionModule,
+    PaymasterModule,
+    PricesModule,
+  ],
 })
-export class AppModule implements OnModuleInit {
-    constructor(@InjectRedis() private readonly redis: Redis) { }
+export class AppModule implements OnModuleInit, NestModule {
+  constructor(@InjectRedis() private readonly redis: Redis) {}
 
-    async onModuleInit() { }
+  configure(consumer: MiddlewareConsumer) {
+    consumer.apply(GeofenceMiddleware).forRoutes('*');
+  }
+  async onModuleInit() {}
 }

@@ -1,4 +1,9 @@
-import { Inject, Injectable, UnauthorizedException, BadRequestException } from '@nestjs/common';
+import {
+  Inject,
+  Injectable,
+  UnauthorizedException,
+  BadRequestException,
+} from '@nestjs/common';
 import { InjectRedis } from '@nestjs-modules/ioredis';
 import Redis from 'ioredis';
 import { ethers } from 'ethers';
@@ -6,116 +11,157 @@ import * as jwt from 'jsonwebtoken';
 import { v4 as uuidv4 } from 'uuid';
 import { env } from '../../config';
 import * as crypto from 'crypto';
+import { PlayerService } from '../player/player.service';
 import { SIGNATURE_VERIFIER, SignatureVerifier } from './signature-verifier';
 
 @Injectable()
 export class AuthService {
-    private readonly wssKeyCache = new Map<string, { key: string, expiresAt: number }>();
+  private readonly wssKeyCache = new Map<
+    string,
+    { key: string; expiresAt: number }
+  >();
 
-    constructor(
-        @InjectRedis() private readonly redis: Redis,
-        @Inject(SIGNATURE_VERIFIER) private readonly signatureVerifier: SignatureVerifier,
-    ) { }
+  constructor(
+    @InjectRedis() private readonly redis: Redis,
+    @Inject(SIGNATURE_VERIFIER)
+    private readonly signatureVerifier: SignatureVerifier,
+    private readonly players: PlayerService,
+  ) {}
 
-    async generateChallenge(address: string): Promise<string> {
-        const challenge = `Sign this message to log in to tap2stacks: ${uuidv4()}`;
-        // Store challenge with 5 minutes TTL
-        await this.redis.set(`auth:challenge:${ethers.getAddress(address)}`, challenge, 'EX', 300);
-        return challenge;
+  async generateChallenge(address: string): Promise<string> {
+    const challenge = `Sign this message to log in to tap2stacks: ${uuidv4()}`;
+    // Store challenge with 5 minutes TTL
+    await this.redis.set(
+      `auth:challenge:${ethers.getAddress(address)}`,
+      challenge,
+      'EX',
+      300,
+    );
+    return challenge;
+  }
+
+  async login(
+    address: string,
+    signature: string,
+    age18?: boolean,
+    notUS?: boolean,
+    country: string | null = null,
+  ) {
+    const normalizedAddress = ethers.getAddress(address);
+    const challenge = await this.redis.get(
+      `auth:challenge:${normalizedAddress}`,
+    );
+
+    if (!challenge) {
+      throw new BadRequestException(
+        'Challenge not found or expired. Please request a new challenge.',
+      );
     }
 
-    async login(address: string, signature: string) {
-        const normalizedAddress = ethers.getAddress(address);
-        const challenge = await this.redis.get(`auth:challenge:${normalizedAddress}`);
-
-        if (!challenge) {
-            throw new BadRequestException('Challenge not found or expired. Please request a new challenge.');
-        }
-
-        const isValid = await this.signatureVerifier.verify(normalizedAddress, challenge, signature);
-        if (!isValid) {
-            throw new UnauthorizedException('Invalid signature');
-        }
-
-        // Clean up challenge
-        await this.redis.del(`auth:challenge:${normalizedAddress}`);
-
-        // Generate Credentials
-        const jwtToken = this.generateJwt(normalizedAddress);
-        const wssKey = await this.generateWssKey(normalizedAddress);
-
-        return {
-            accessToken: jwtToken,
-            wssKey: wssKey.key,
-            wssKeyExpiresAt: wssKey.expiresAt,
-        };
+    const isValid = await this.signatureVerifier.verify(
+      normalizedAddress,
+      challenge,
+      signature,
+    );
+    if (!isValid) {
+      throw new UnauthorizedException('Invalid signature');
     }
 
-    private generateJwt(address: string): string {
-        return jwt.sign({ sub: address }, env.secret.jwtSecret, { expiresIn: '1d' });
+    const player = await this.players.getOrCreate(
+      normalizedAddress,
+      age18,
+      notUS,
+      country,
+    );
+
+    // Clean up challenge
+    await this.redis.del(`auth:challenge:${normalizedAddress}`);
+
+    // Generate Credentials
+    const jwtToken = this.generateJwt(normalizedAddress);
+    const wssKey = await this.generateWssKey(normalizedAddress);
+
+    return {
+      isBot: player.isBot,
+      accessToken: jwtToken,
+      wssKey: wssKey.key,
+      wssKeyExpiresAt: wssKey.expiresAt,
+    };
+  }
+
+  private generateJwt(address: string): string {
+    return jwt.sign({ sub: address }, env.secret.jwtSecret, {
+      expiresIn: '1d',
+    });
+  }
+
+  async generateWssKey(address: string) {
+    // Recommended key length for HMAC-SHA256 is 32 bytes (256 bits)
+    const keyLength = 32;
+
+    // Generate a cryptographically secure random key
+    const secretKey: Buffer = crypto.randomBytes(keyLength);
+
+    // You can convert it to a hex or base64 string for storage or transmission
+    const secretKeyHex: string = secretKey.toString('hex');
+
+    // WSS key valid for 2 minutes (short lived for realtime authorization)
+    const ttl = 120;
+    const normalizedAddress = ethers.getAddress(address);
+    const expiresAt = Date.now() + ttl * 1000;
+
+    this.wssKeyCache.set(normalizedAddress, {
+      key: secretKeyHex,
+      expiresAt,
+    });
+
+    // Set a timeout to clean up memory
+    setTimeout(() => {
+      const cached = this.wssKeyCache.get(normalizedAddress);
+      if (cached && cached.expiresAt <= Date.now()) {
+        this.wssKeyCache.delete(normalizedAddress);
+      }
+    }, ttl * 1000);
+
+    return {
+      key: secretKeyHex,
+      expiresAt,
+    };
+  }
+
+  async validateWssSignature(
+    address: string,
+    message: string,
+    signature: string,
+    withChallenge?: boolean,
+  ): Promise<boolean> {
+    const normalizedAddress = ethers.getAddress(address);
+    const cached = this.wssKeyCache.get(normalizedAddress);
+
+    if (!cached) {
+      return false;
     }
 
-    async generateWssKey(address: string) {
-        // Recommended key length for HMAC-SHA256 is 32 bytes (256 bits)
-        const keyLength = 32;
-
-        // Generate a cryptographically secure random key
-        const secretKey: Buffer = crypto.randomBytes(keyLength);
-
-        // You can convert it to a hex or base64 string for storage or transmission
-        const secretKeyHex: string = secretKey.toString('hex');
-
-        // WSS key valid for 2 minutes (short lived for realtime authorization)
-        const ttl = 120;
-        const normalizedAddress = ethers.getAddress(address);
-        const expiresAt = Date.now() + ttl * 1000;
-
-        this.wssKeyCache.set(normalizedAddress, {
-            key: secretKeyHex,
-            expiresAt
-        });
-
-        // Set a timeout to clean up memory
-        setTimeout(() => {
-            const cached = this.wssKeyCache.get(normalizedAddress);
-            if (cached && cached.expiresAt <= Date.now()) {
-                this.wssKeyCache.delete(normalizedAddress);
-            }
-        }, ttl * 1000);
-
-        return {
-            key: secretKeyHex,
-            expiresAt,
-        };
+    if (cached.expiresAt < Date.now()) {
+      this.wssKeyCache.delete(normalizedAddress);
+      return false;
     }
 
-    async validateWssSignature(address: string, message: string, signature: string, withChallenge?: boolean): Promise<boolean> {
-        const normalizedAddress = ethers.getAddress(address);
-        const cached = this.wssKeyCache.get(normalizedAddress);
+    const storedKey = cached.key;
+    const keyBuffer = Buffer.from(storedKey, 'hex');
 
-        if (!cached) {
-            return false;
-        }
+    const hmac = crypto.createHmac('sha256', keyBuffer).update(message);
 
-        if (cached.expiresAt < Date.now()) {
-            this.wssKeyCache.delete(normalizedAddress);
-            return false;
-        }
-
-        const storedKey = cached.key;
-        const keyBuffer = Buffer.from(storedKey, 'hex');
-
-        const hmac = crypto.createHmac('sha256', keyBuffer)
-            .update(message)
-
-        if (withChallenge) {
-            const challenge = await this.redis.get(`auth:challenge:${normalizedAddress}`);
-            if (!challenge) {
-                return false;
-            }
-            hmac.update(challenge);
-        }
-
-        return hmac.digest('hex') === signature;
+    if (withChallenge) {
+      const challenge = await this.redis.get(
+        `auth:challenge:${normalizedAddress}`,
+      );
+      if (!challenge) {
+        return false;
+      }
+      hmac.update(challenge);
     }
+
+    return hmac.digest('hex') === signature;
+  }
 }
