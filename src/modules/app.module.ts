@@ -11,11 +11,8 @@ import { AccountModule } from './account/account.module';
 import { AuthModule } from './auth/auth.module';
 import { OrderModule } from './order/order.module';
 import { PaymentModule } from './payment/payment.module';
-import { PriceModule } from './price/price.module';
 import { SocketModule } from './socket/socket.module';
-import { GridModule } from './grid/grid.module';
-import { DistributionModule } from './distribution/distribution.module';
-import { HcsAnchorModule } from './hcs-anchor/hcs-anchor.module';
+import { ProofModule } from './proof/proof.module';
 
 @Module({
     imports: [
@@ -33,10 +30,7 @@ import { HcsAnchorModule } from './hcs-anchor/hcs-anchor.module';
         AccountModule,
         OrderModule,
         PaymentModule,
-        PriceModule,
-        GridModule,
-        DistributionModule,
-        HcsAnchorModule,
+        ProofModule,
     ],
 })
 export class AppModule implements OnModuleInit {

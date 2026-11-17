@@ -1,141 +1,105 @@
 import * as dotenv from 'dotenv';
 import * as Joi from 'joi';
+
 dotenv.config();
 
 export const isLocal = process.env.NODE_ENV === 'local';
 
-const envVarsSchema = Joi.object()
+export const envVarsSchema = Joi.object()
   .keys({
     NODE_ENV: Joi.string()
       .valid('production', 'development', 'test', 'local', 'staging')
-      .required(),
+      .default('development'),
     PORT: Joi.number().default(3000),
-    NETWORK: Joi.string()
-      .default('mainnet')
-      .valid('mainnet', 'testnet', 'devnet'),
 
     WAL_PATH: Joi.string().default('wal'),
-    ACCOUNT_SHARD_COUNT: Joi.number().default(16),
+    ACCOUNT_SHARD_COUNT: Joi.number().integer().min(1).default(16),
 
     POSTGRES_URL: Joi.string().required(),
-
-    CLICKHOUSE_URL: Joi.string().required(),
-
     REDIS_URL: Joi.string().required(),
 
-    BUCKET_NAME: Joi.string().required(),
-    MINIO_ACCESS_KEY: Joi.string().required(),
-    MINIO_HOST: Joi.string().required(),
-    MINIO_PORT: Joi.number().required(),
-    MINIO_SECRET_KEY: Joi.string().required(),
+    ENGINE_URL: Joi.string().required(),
+    ENGINE_TOKEN: Joi.string().required(),
 
-    RPC: Joi.string().required(),
+    RPC_URL: Joi.string().required(),
+    VAULT_ADDRESS: Joi.string().allow('').default(''),
+    TUSDC_ADDRESS: Joi.string().allow('').default(''),
+    PROOF_ANCHOR_ADDRESS: Joi.string().allow('').default(''),
+    DEPLOY_BLOCK: Joi.number().integer().min(0).default(0),
 
-    KAFKA_BROKER: Joi.string().default('localhost:39092'),
-    KAFKA_TOPIC_PREFIX: Joi.string().required(),
+    BOT_WALLETS: Joi.string().allow('').default(''),
 
-    KAFKA_RUNNING_FLAG: Joi.boolean().default(true),
+    RUN_SETTLEMENT: Joi.boolean().default(true),
+    PROOF_ANCHOR_ENABLED: Joi.boolean().default(true),
+    GEOFENCE_ENABLED: Joi.boolean().default(false),
 
     JWT_SECRET: Joi.string().required(),
-    APP_API_KEY: Joi.string().required(),
-
-    ADMIN_PRIVATE_KEY: Joi.string().required(),
-
+    ADMIN_API_KEY: Joi.string().min(32).required(),
     CELL_SIGNER_KEY: Joi.string().required(),
-
-    RUN_PRICE_TICK: Joi.boolean().required(),
-    RUN_SETTLEMENT: Joi.boolean().required(),
-
-    HCS_MODE: Joi.string().valid('mock', 'legacy').default('mock'),
-    HCS_TOPIC_ID: Joi.string().allow('').optional(),
-    LEGACY_NETWORK: Joi.string()
-      .valid('mainnet', 'testnet', 'previewnet')
-      .default('testnet'),
-    LEGACY_OPERATOR_ID: Joi.string().allow('').optional(),
-    LEGACY_OPERATOR_KEY: Joi.string().allow('').optional(),
-    LEGACY_MIRROR_NODE_URL: Joi.string()
-      .uri()
-      .default('https://testnet.mirrornode.example.com'),
-    HCS_CREATE_TOPIC_IF_MISSING: Joi.boolean().default(false),
-    HCS_TOPIC_MEMO: Joi.string().default('tap settled-order anchors'),
-    HCS_AUTO_ANCHOR_ENABLED: Joi.boolean().default(true),
+    WITHDRAW_SIGNER_PRIVATE_KEY: Joi.string().required(),
+    RELAYER_PRIVATE_KEY: Joi.string().required(),
+    CDP_PAYMASTER_URL: Joi.string().allow('').default(''),
   })
   .unknown();
 
-const { value: envVars, error } = envVarsSchema
-  .prefs({ errors: { label: 'key' } })
-  .validate(process.env);
+export function parseEnv(rawEnv: NodeJS.ProcessEnv = process.env) {
+  const { value: envVars, error } = envVarsSchema
+    .prefs({ errors: { label: 'key' } })
+    .validate(rawEnv);
 
-if (error != null) {
-  throw new Error(`Config validation error: ${error.message}`);
+  if (error != null) {
+    throw new Error(`Config validation error: ${error.message}`);
+  }
+
+  return {
+    env: envVars.NODE_ENV as string,
+    port: Number(envVars.PORT),
+    account: {
+      walPath: envVars.WAL_PATH as string,
+      shardCount: Number(envVars.ACCOUNT_SHARD_COUNT),
+    },
+    postgres: {
+      url: envVars.POSTGRES_URL as string,
+    },
+    redis: {
+      url: envVars.REDIS_URL as string,
+    },
+    engine: {
+      url: envVars.ENGINE_URL as string,
+      token: envVars.ENGINE_TOKEN as string,
+    },
+    web3: {
+      rpc: envVars.RPC_URL as string,
+      rpcUrl: envVars.RPC_URL as string,
+      vaultAddress: envVars.VAULT_ADDRESS as string,
+      tusdcAddress: envVars.TUSDC_ADDRESS as string,
+      proofAnchorAddress: envVars.PROOF_ANCHOR_ADDRESS as string,
+      deployBlock: Number(envVars.DEPLOY_BLOCK),
+    },
+    botWallets: String(envVars.BOT_WALLETS || '')
+      .split(',')
+      .map((wallet) => wallet.trim())
+      .filter(Boolean),
+    flag: {
+      runSettlement:
+        envVars.RUN_SETTLEMENT === true || envVars.RUN_SETTLEMENT === 'true',
+      proofAnchorEnabled:
+        envVars.PROOF_ANCHOR_ENABLED === true ||
+        envVars.PROOF_ANCHOR_ENABLED === 'true',
+      geofenceEnabled:
+        envVars.GEOFENCE_ENABLED === true ||
+        envVars.GEOFENCE_ENABLED === 'true',
+    },
+    secret: {
+      jwtSecret: envVars.JWT_SECRET as string,
+      cellSignerKey: envVars.CELL_SIGNER_KEY as string,
+      engineToken: envVars.ENGINE_TOKEN as string,
+      adminApiKey: envVars.ADMIN_API_KEY as string,
+      withdrawSignerPrivateKey: envVars.WITHDRAW_SIGNER_PRIVATE_KEY as string,
+      relayerPrivateKey: envVars.RELAYER_PRIVATE_KEY as string,
+      cdpPaymasterUrl: envVars.CDP_PAYMASTER_URL as string,
+    },
+  };
 }
 
-export const env = {
-  env: envVars.NODE_ENV,
-  port: envVars.PORT,
-  network: envVars.NETWORK,
-  account: {
-    walPath: envVars.WAL_PATH,
-    shardCount: envVars.ACCOUNT_SHARD_COUNT,
-  },
-  postgres: {
-    url: envVars.POSTGRES_URL,
-  },
-  redis: {
-    url: envVars.REDIS_URL,
-  },
-  minio: {
-    accessKey: envVars.MINIO_ACCESS_KEY,
-    bucket: envVars.BUCKET_NAME,
-    host: envVars.MINIO_HOST,
-    port: envVars.MINIO_PORT,
-    secretKey: envVars.MINIO_SECRET_KEY,
-  },
-  clickhouse: {
-    url: envVars.CLICKHOUSE_URL,
-  },
-  web3: {
-    rpc: envVars.RPC,
-  },
-  kafka: {
-    broker: envVars.KAFKA_BROKER,
-    topicPrefix: envVars.KAFKA_TOPIC_PREFIX,
-  },
-  flag: {
-    isRunningKafka:
-      envVars.KAFKA_RUNNING_FLAG === true ||
-      envVars.KAFKA_RUNNING_FLAG === 'true',
-    runPriceTick:
-      envVars.RUN_PRICE_TICK === true ||
-      envVars.RUN_PRICE_TICK === 'true',
-    runSettlement:
-      envVars.RUN_SETTLEMENT === true ||
-      envVars.RUN_SETTLEMENT === 'true',
-  },
-  secret: {
-    jwtSecret: envVars.JWT_SECRET,
-    appApiKey: envVars.APP_API_KEY,
-    adminPrivateKey: envVars.ADMIN_PRIVATE_KEY,
-    cellSignerKey: envVars.CELL_SIGNER_KEY,
-  },
-  hcs: {
-    mode: envVars.HCS_MODE,
-    topicId: envVars.HCS_TOPIC_ID || undefined,
-    autoAnchorEnabled:
-      envVars.HCS_AUTO_ANCHOR_ENABLED === true ||
-      envVars.HCS_AUTO_ANCHOR_ENABLED === 'true',
-    createTopicIfMissing:
-      envVars.HCS_CREATE_TOPIC_IF_MISSING === true ||
-      envVars.HCS_CREATE_TOPIC_IF_MISSING === 'true',
-    topicMemo: envVars.HCS_TOPIC_MEMO,
-    legacy: {
-      network: envVars.LEGACY_NETWORK,
-      operatorId: envVars.LEGACY_OPERATOR_ID || undefined,
-      operatorKey: envVars.LEGACY_OPERATOR_KEY || undefined,
-      mirrorNodeUrl: envVars.LEGACY_MIRROR_NODE_URL,
-    },
-  },
-};
-
-export const isMainnet = env.network === 'mainnet';
-export const isTestnet = env.network === 'testnet';
+export const env = parseEnv(process.env);

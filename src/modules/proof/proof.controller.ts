@@ -5,14 +5,14 @@ import {
   ApiTags,
 } from '@nestjs/swagger';
 import { ApiKeyGuard } from '../auth/guards/api-key.guard';
-import { HcsAnchorService } from './hcs-anchor.service';
+import { ProofService } from './proof.service';
 import { GetAnchorBatchesDto } from './dto/get-anchor-batches.dto';
 import { RunAnchorBatchDto } from './dto/run-anchor-batch.dto';
 
-@ApiTags('HCS Anchor')
-@Controller('v1/hcs-anchor')
-export class HcsAnchorController {
-  constructor(private readonly hcsAnchorService: HcsAnchorService) {}
+@ApiTags('Proof')
+@Controller('v1/proof')
+export class ProofController {
+  constructor(private readonly proofService: ProofService) {}
 
   @Post('run')
   @ApiBearerAuth('bearer')
@@ -20,10 +20,10 @@ export class HcsAnchorController {
   @ApiOperation({
     summary: 'Run one anchor batch for settled orders',
     description:
-      'Queries settled orders that are not anchored yet, builds a Merkle batch, and submits it through the configured HCS publisher.',
+      'Queries settled orders that are not anchored yet, builds a Merkle batch, and submits it through the configured proof publisher.',
   })
   async runAnchor(@Body() dto: RunAnchorBatchDto) {
-    return this.hcsAnchorService.runOnce(dto);
+    return this.proofService.runOnce(dto);
   }
 
   @Get('batches')
@@ -31,7 +31,7 @@ export class HcsAnchorController {
     summary: 'List anchor batches',
   })
   async getBatches(@Query() query: GetAnchorBatchesDto) {
-    return this.hcsAnchorService.getBatches(query.limit, query.offset);
+    return this.proofService.getBatches(query.limit, query.offset);
   }
 
   @Get('batches/:batchId')
@@ -39,7 +39,7 @@ export class HcsAnchorController {
     summary: 'Get anchor batch details',
   })
   async getBatch(@Param('batchId') batchId: string) {
-    return this.hcsAnchorService.getBatch(batchId);
+    return this.proofService.getBatch(batchId);
   }
 
   @Get('batches/:batchId/verify-topic')
@@ -47,7 +47,7 @@ export class HcsAnchorController {
     summary: 'Verify an anchor batch against the configured publisher',
   })
   async verifyBatchTopic(@Param('batchId') batchId: string) {
-    return this.hcsAnchorService.verifyBatchTopic(batchId);
+    return this.proofService.verifyBatchTopic(batchId);
   }
 
   @Get('orders/:orderId/proof')
@@ -55,6 +55,6 @@ export class HcsAnchorController {
     summary: 'Get Merkle proof for an anchored order',
   })
   async getOrderProof(@Param('orderId') orderId: string) {
-    return this.hcsAnchorService.getOrderProof(orderId);
+    return this.proofService.getOrderProof(orderId);
   }
 }

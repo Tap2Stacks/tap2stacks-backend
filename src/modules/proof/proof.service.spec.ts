@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { HcsAnchorService } from './hcs-anchor.service';
+import { ProofService } from './proof.service';
 import { MerkleTreeService } from './merkle-tree.service';
 import { OrderStatus } from '../order/types';
 import { Order } from '../order/entities/order.entity';
@@ -23,7 +23,7 @@ const buildSettledOrder = (overrides: Partial<Order> = {}): Order =>
     ...overrides,
   }) as Order;
 
-describe('HcsAnchorService', () => {
+describe('ProofService', () => {
   it('anchors pending settled orders through the mock publisher pipeline', async () => {
     const firstOrder = buildSettledOrder();
     const secondOrder = buildSettledOrder({
@@ -67,7 +67,7 @@ describe('HcsAnchorService', () => {
       }),
     };
 
-    const service = new HcsAnchorService(
+    const service = new ProofService(
       orderRepository as any,
       batchRepository as any,
       dataSource as any,
@@ -95,7 +95,7 @@ describe('HcsAnchorService', () => {
   });
 
   it('returns noop when there are no settled orders to anchor', async () => {
-    const service = new HcsAnchorService(
+    const service = new ProofService(
       {
         find: vi.fn().mockResolvedValue([]),
       } as any,
@@ -146,7 +146,7 @@ describe('HcsAnchorService', () => {
       anchorLeafHash: anchoredBatch.leaves[1].leafHash,
     };
 
-    const service = new HcsAnchorService(
+    const service = new ProofService(
       {
         find: vi.fn().mockResolvedValue([firstOrder, secondOrder]),
         findOneBy: vi.fn().mockResolvedValue(firstOrder),
@@ -182,7 +182,7 @@ describe('HcsAnchorService', () => {
   });
 
   it('verifies a submitted batch against the publisher', async () => {
-    const service = new HcsAnchorService(
+    const service = new ProofService(
       {
         find: vi.fn(),
         findOneBy: vi.fn(),

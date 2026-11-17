@@ -2,11 +2,11 @@ import { NestFactory } from '@nestjs/core';
 import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import dataSource from 'src/libs/typeorm.config';
-import { HcsAnchorModule } from 'src/modules/hcs-anchor/hcs-anchor.module';
-import { HcsAnchorService } from 'src/modules/hcs-anchor/hcs-anchor.service';
+import { ProofModule } from 'src/modules/proof/proof.module';
+import { ProofService } from 'src/modules/proof/proof.service';
 
 @Module({
-  imports: [TypeOrmModule.forRoot(dataSource.options), HcsAnchorModule],
+  imports: [TypeOrmModule.forRoot(dataSource.options), ProofModule],
 })
 class HcsAnchorTopicVerifyCliModule {}
 
@@ -27,8 +27,8 @@ async function run() {
   );
 
   try {
-    const hcsAnchorService = app.get(HcsAnchorService);
-    const result = await hcsAnchorService.verifyBatchTopic(batchId);
+    const proofService = app.get(ProofService);
+    const result = await proofService.verifyBatchTopic(batchId);
     console.log(JSON.stringify(result, null, 2));
   } finally {
     await app.close();

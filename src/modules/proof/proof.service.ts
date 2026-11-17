@@ -18,8 +18,8 @@ import { OrderStatus } from '../order/types';
 import { HCS_PUBLISHER, HcsPublisher } from './publishers/hcs-publisher';
 
 @Injectable()
-export class HcsAnchorService {
-  private readonly logger = new Logger(HcsAnchorService.name);
+export class ProofService {
+  private readonly logger = new Logger(ProofService.name);
 
   constructor(
     @InjectRepository(Order)

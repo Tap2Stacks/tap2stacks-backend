@@ -1,18 +1,18 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { Cron, CronExpression } from '@nestjs/schedule';
 import { env } from 'src/config';
-import { HcsAnchorService } from './hcs-anchor.service';
+import { ProofService } from './proof.service';
 
 @Injectable()
-export class HcsAnchorCronService {
-  private readonly logger = new Logger(HcsAnchorCronService.name);
+export class ProofCronService {
+  private readonly logger = new Logger(ProofCronService.name);
   private isRunning = false;
 
-  constructor(private readonly hcsAnchorService: HcsAnchorService) {}
+  constructor(private readonly proofService: ProofService) {}
 
   @Cron(CronExpression.EVERY_MINUTE)
   async runAutoAnchor(): Promise<void> {
-    if (!env.hcs.autoAnchorEnabled) {
+    if (!env.flag.proofAnchorEnabled) {
       return;
     }
 
@@ -23,14 +23,14 @@ export class HcsAnchorCronService {
       return;
     }
 
-    const pendingCount = await this.hcsAnchorService.countPendingSettledOrders();
+    const pendingCount = await this.proofService.countPendingSettledOrders();
     if (pendingCount === 0) {
       return;
     }
 
     this.isRunning = true;
     try {
-      const result = await this.hcsAnchorService.runOnce();
+      const result = await this.proofService.runOnce();
       if (result.status === 'submitted') {
         this.logger.log(
           `Auto-anchored ${result.anchoredCount} settled orders in batch ${result.batchId}`,

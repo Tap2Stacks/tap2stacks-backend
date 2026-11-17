@@ -32,7 +32,7 @@ export class ApiKeyGuard implements CanActivate {
         }
 
         // Validate API Key
-        if (token !== env.secret.appApiKey) {
+        if (!env.secret.adminApiKey || token !== env.secret.adminApiKey) {
             throw new UnauthorizedException({
                 error: 'unauthorized',
                 message: 'Invalid API key',
