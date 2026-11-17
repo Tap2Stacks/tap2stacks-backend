@@ -12,6 +12,11 @@ import { Response } from 'express';
 import { PublicRateLimitGuard } from '../feed/public-rate-limit.guard';
 import { ProofService } from './proof.service';
 
+const UUID_RE =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const COMPOSITE_ORDER_ID_RE =
+  /^0x[0-9a-fA-F]{40}:[A-Za-z0-9-]+:\d+:\d+:\d+(?:\.\d+)?:\d+(?:\.\d+)?:[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
 @ApiTags('Proofs')
 @Controller('proofs')
 @UseGuards(PublicRateLimitGuard)
@@ -27,6 +32,15 @@ export class ProofController {
     const limit = this.parseLimit(rawLimit);
     const offset = this.parseOffset(rawOffset);
     return this.proofService.listSubmittedBatches(limit, offset);
+  }
+
+  @Get('orders/:orderId')
+  @ApiOperation({
+    summary: 'Get batch, leaf, Merkle proof, and covering price logs for a tap',
+  })
+  async getOrderProof(@Param('orderId') rawOrderId: string) {
+    const orderId = this.parseOrderId(rawOrderId);
+    return this.proofService.getOrderProof(orderId);
   }
 
   @Get(':index/price-log')
@@ -46,6 +60,13 @@ export class ProofController {
   async getBatchTaps(@Param('index') rawIndex: string) {
     const index = this.parseIndex(rawIndex);
     return this.proofService.getBatchTaps(index);
+  }
+
+  private parseOrderId(raw: string): string {
+    if (!UUID_RE.test(raw) && !COMPOSITE_ORDER_ID_RE.test(raw)) {
+      throw new BadRequestException('Invalid orderId');
+    }
+    return raw;
   }
 
   private parseIndex(raw: string): number {

@@ -11,13 +11,16 @@ import {
   ProofPublisher,
 } from './publishers/base-proof.publisher';
 import {
+  OrderProofLookupResponse,
   ProofBatchSummary,
+  ProofBatchTapItem,
   ProofBatchTapsResponse,
   RunAnchorWindowResult,
   SettlementAnchorBatchStatus,
 } from './types';
 
 export const PROOF_WINDOW_MS = 300_000;
+export const PROOF_VOID_GAP_MS = 3_000;
 
 @Injectable()
 export class ProofService {
@@ -119,14 +122,7 @@ export class ProofService {
       skip: Math.max(0, offset),
     });
 
-    return batches.map((batch) => ({
-      index: batch.index!,
-      fromMs: Number(batch.fromMs),
-      toMs: Number(batch.toMs),
-      tapsRoot: batch.tapsRoot,
-      priceLogHash: batch.priceLogHash,
-      txHash: batch.txHash!,
-    }));
+    return batches.map((batch) => this.toBatchSummary(batch));
   }
 
   async getBatchPriceLog(index: number): Promise<Buffer> {
@@ -136,14 +132,68 @@ export class ProofService {
 
   async getBatchTaps(index: number): Promise<ProofBatchTapsResponse> {
     const batch = await this.findSubmittedBatchByIndex(index);
-    const orders = await this.orderRepository.find({
-      where: { anchorBatchId: batch.batchId },
-      order: { settledAt: 'ASC', orderId: 'ASC' },
+    const taps = await this.buildBatchTapItems(batch.batchId);
+
+    return {
+      ...this.toBatchSummary(batch),
+      taps,
+    };
+  }
+
+  async getOrderProof(orderId: string): Promise<OrderProofLookupResponse> {
+    const order = await this.orderRepository.findOneBy({ orderId });
+    if (!order) {
+      throw new NotFoundException({
+        code: 'ORDER_NOT_FOUND',
+        message: `Order ${orderId} not found`,
+      });
+    }
+
+    if (!order.anchorBatchId) {
+      throw new NotFoundException({
+        code: 'PROOF_PENDING',
+        message: `Proof for order ${orderId} is pending`,
+      });
+    }
+
+    const batch = await this.batchRepository.findOneBy({
+      batchId: order.anchorBatchId,
     });
+    if (
+      !batch ||
+      batch.status !== SettlementAnchorBatchStatus.SUBMITTED ||
+      batch.index == null ||
+      !batch.txHash
+    ) {
+      throw new NotFoundException({
+        code: 'PROOF_PENDING',
+        message: `Proof for order ${orderId} is pending`,
+      });
+    }
 
-    const prepared = this.merkleTreeService.prepareSettledOrders(orders);
-    const leafHashes = prepared.leaves.map((leaf) => leaf.leafHash);
+    const taps = await this.buildBatchTapItems(batch.batchId);
+    const tap = taps.find((item) => item.orderId === order.orderId);
+    if (!tap) {
+      throw new NotFoundException({
+        code: 'PROOF_PENDING',
+        message: `Proof for order ${orderId} is pending`,
+      });
+    }
 
+    const priceLogIndexes = await this.findCoveringPriceLogIndexes(
+      Number(order.cellTimeStart) - PROOF_VOID_GAP_MS,
+      Number(order.cellTimeEnd),
+    );
+
+    return {
+      orderId: order.orderId,
+      batch: this.toBatchSummary(batch),
+      tap,
+      priceLogIndexes,
+    };
+  }
+
+  private toBatchSummary(batch: SettlementAnchorBatch): ProofBatchSummary {
     return {
       index: batch.index!,
       fromMs: Number(batch.fromMs),
@@ -151,12 +201,42 @@ export class ProofService {
       tapsRoot: batch.tapsRoot,
       priceLogHash: batch.priceLogHash,
       txHash: batch.txHash!,
-      taps: prepared.leaves.map((leaf, leafIndex) => ({
-        ...leaf.canonical,
-        leafHash: leaf.leafHash,
-        proof: this.merkleTreeService.buildMerkleProof(leafHashes, leafIndex),
-      })),
     };
+  }
+
+  private async buildBatchTapItems(
+    batchId: string,
+  ): Promise<ProofBatchTapItem[]> {
+    const orders = await this.orderRepository.find({
+      where: { anchorBatchId: batchId },
+      order: { settledAt: 'ASC', orderId: 'ASC' },
+    });
+
+    const prepared = this.merkleTreeService.prepareSettledOrders(orders);
+    const leafHashes = prepared.leaves.map((leaf) => leaf.leafHash);
+
+    return prepared.leaves.map((leaf, leafIndex) => ({
+      ...leaf.canonical,
+      leafHash: leaf.leafHash,
+      proof: this.merkleTreeService.buildMerkleProof(leafHashes, leafIndex),
+    }));
+  }
+
+  private async findCoveringPriceLogIndexes(
+    coverStart: number,
+    coverEnd: number,
+  ): Promise<number[]> {
+    const batches = await this.batchRepository
+      .createQueryBuilder('batch')
+      .where('batch.status = :status', {
+        status: SettlementAnchorBatchStatus.SUBMITTED,
+      })
+      .andWhere('batch.fromMs <= :coverEnd', { coverEnd })
+      .andWhere('batch.toMs > :coverStart', { coverStart })
+      .orderBy('batch.index', 'ASC')
+      .getMany();
+
+    return batches.map((batch) => batch.index!);
   }
 
   private async resolveNextWindow(nowMs: number): Promise<{

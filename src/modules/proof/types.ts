@@ -99,3 +99,10 @@ export type ProofBatchTapsResponse = {
   txHash: string;
   taps: ProofBatchTapItem[];
 };
+
+export type OrderProofLookupResponse = {
+  orderId: string;
+  batch: ProofBatchSummary;
+  tap: ProofBatchTapItem;
+  priceLogIndexes: number[];
+};
