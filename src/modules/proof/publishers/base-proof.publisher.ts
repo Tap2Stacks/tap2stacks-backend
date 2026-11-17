@@ -1,4 +1,10 @@
-import { Inject, Injectable, Logger, OnModuleInit } from '@nestjs/common';
+import {
+  Inject,
+  Injectable,
+  Logger,
+  OnModuleInit,
+  Optional,
+} from '@nestjs/common';
 import {
   Contract,
   Interface,
@@ -11,6 +17,10 @@ import { ProofPostResult } from '../types';
 export const PROOF_PUBLISHER = Symbol('PROOF_PUBLISHER');
 export const BASE_PROOF_PUBLISHER_CONFIG = Symbol(
   'BASE_PROOF_PUBLISHER_CONFIG',
+);
+// Optional override for tests; the app builds the ethers contract itself.
+export const PROOF_ANCHOR_CONTRACT_FACTORY = Symbol(
+  'PROOF_ANCHOR_CONTRACT_FACTORY',
 );
 
 export interface ProofPublisher {
@@ -63,6 +73,8 @@ export class BaseProofPublisher implements ProofPublisher, OnModuleInit {
   constructor(
     @Inject(BASE_PROOF_PUBLISHER_CONFIG)
     private readonly config: BaseProofPublisherConfig,
+    @Optional()
+    @Inject(PROOF_ANCHOR_CONTRACT_FACTORY)
     private readonly contractFactory?: (
       config: BaseProofPublisherConfig,
     ) => ProofAnchorContractLike,
