@@ -258,8 +258,9 @@ describe('OrderService.placeOrder', () => {
       'user-1',
       '25',
       'NVDA',
-      getCellId(cell),
+      order.orderId,
     );
+    expect(order.orderId.startsWith(`user-1:${getCellId(cell)}:`)).toBe(true);
     expect(orderRepository.save).toHaveBeenCalledTimes(1);
     expect(engineClient.sendExposure).toHaveBeenCalledTimes(1);
     expect(engineClient.sendExposure).toHaveBeenCalledWith('NVDA', [
@@ -273,27 +274,140 @@ describe('OrderService.placeOrder', () => {
       expect.objectContaining({
         status: OrderStatus.OPEN,
         ticker: 'NVDA',
+        cellId: getCellId(cell),
       }),
     );
   });
 
-  it('rejects duplicate tap on same cell with DUPLICATE and insufficient balance with INSUFFICIENT_BALANCE', async () => {
+  it('two taps on the same cell are both accepted', async () => {
     const cell = makeSignedCell();
-    await service.placeOrder('user-1', {
+    const cellId = getCellId(cell);
+
+    const o1 = await service.placeOrder('user-1', {
+      marketId: 'NVDA',
+      amount: '5',
+      cell,
+    });
+    const o2 = await service.placeOrder('user-1', {
       marketId: 'NVDA',
       amount: '10',
       cell,
     });
 
+    expect(o1.status).toBe(OrderStatus.OPEN);
+    expect(o2.status).toBe(OrderStatus.OPEN);
+    expect(o1.orderId).not.toBe(o2.orderId);
+    expect(o1.orderId.startsWith(`user-1:${cellId}:`)).toBe(true);
+    expect(o2.orderId.startsWith(`user-1:${cellId}:`)).toBe(true);
+    expect(accountService.placeBet).toHaveBeenCalledTimes(2);
+    expect(exposureTracker.snapshot('NVDA')).toEqual([
+      {
+        windowStartMs: cell.startTs,
+        lowerCents: 15750,
+        liability: 34.65,
+      },
+    ]);
+  });
+
+  it('fifth $25 tap on one cell is rejected with CELL_LIMIT', async () => {
+    const cell = makeSignedCell();
+    for (let i = 0; i < 4; i++) {
+      await service.placeOrder('user-1', {
+        marketId: 'NVDA',
+        amount: '25',
+        cell,
+      });
+    }
+
     await expect(
       service.placeOrder('user-1', {
         marketId: 'NVDA',
-        amount: '10',
+        amount: '25',
         cell,
       }),
-    ).rejects.toMatchObject({ reason: 'DUPLICATE' });
+    ).rejects.toMatchObject({ reason: 'CELL_LIMIT' });
 
-    const cell2 = makeSignedCell({ lowerPrice: '158.00', upperPrice: '158.03' });
+    expect(accountService.placeBet).toHaveBeenCalledTimes(4);
+    expect(events.emitOrderUpdate).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        status: OrderStatus.REJECTED,
+        reason: 'CELL_LIMIT',
+        cellId: getCellId(cell),
+      }),
+    );
+  });
+
+  it('order_update echoes clientTapId and cellId on OPEN and REJECTED, and ignores invalid clientTapId', async () => {
+    const cell = makeSignedCell();
+    const cellId = getCellId(cell);
+
+    const order = await service.placeOrder('user-1', {
+      marketId: 'NVDA',
+      amount: '10',
+      cell,
+      clientTapId: 'tap-abc-123',
+    });
+
+    expect(events.emitOrderUpdate).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        orderId: order.orderId,
+        cellId,
+        clientTapId: 'tap-abc-123',
+        status: OrderStatus.OPEN,
+      }),
+    );
+
+    await expect(
+      service.placeOrder('user-1', {
+        marketId: 'NVDA',
+        amount: '0',
+        cell,
+        clientTapId: 'tap-bad-amt',
+      }),
+    ).rejects.toMatchObject({ reason: 'BAD_AMOUNT' });
+
+    expect(events.emitOrderUpdate).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        cellId,
+        clientTapId: 'tap-bad-amt',
+        status: OrderStatus.REJECTED,
+        reason: 'BAD_AMOUNT',
+      }),
+    );
+    const rejectedMsg = events.emitOrderUpdate.mock.calls.at(-1)![0];
+    expect(rejectedMsg.orderId.startsWith(`user-1:${cellId}:`)).toBe(true);
+
+    // Invalid clientTapId (>64 chars or invalid chars) is ignored, order still placed
+    await service.placeOrder('user-1', {
+      marketId: 'NVDA',
+      amount: '10',
+      cell,
+      clientTapId: 'invalid_tap!@#',
+    });
+    const ignoredMsg = events.emitOrderUpdate.mock.calls.at(-1)![0];
+    expect(ignoredMsg.status).toBe(OrderStatus.OPEN);
+    expect(ignoredMsg.cellId).toBe(cellId);
+    expect(ignoredMsg.clientTapId).toBeUndefined();
+
+    await service.placeOrder('user-1', {
+      marketId: 'NVDA',
+      amount: '10',
+      cell,
+      clientTapId: 'a'.repeat(65),
+    });
+    const tooLongMsg = events.emitOrderUpdate.mock.calls.at(-1)![0];
+    expect(tooLongMsg.status).toBe(OrderStatus.OPEN);
+    expect(tooLongMsg.clientTapId).toBeUndefined();
+  });
+
+  it('rejects insufficient balance with INSUFFICIENT_BALANCE and preserves prior cell stake', async () => {
+    const cell = makeSignedCell();
+    await service.placeOrder('user-1', {
+      marketId: 'NVDA',
+      amount: '25',
+      cell,
+    });
+
     accountService.placeBet.mockRejectedValueOnce(
       new BadRequestException('Insufficient balance'),
     );
@@ -301,8 +415,8 @@ describe('OrderService.placeOrder', () => {
     await expect(
       service.placeOrder('user-1', {
         marketId: 'NVDA',
-        amount: '10',
-        cell: cell2,
+        amount: '25',
+        cell,
       }),
     ).rejects.toMatchObject({ reason: 'INSUFFICIENT_BALANCE' });
 
@@ -310,7 +424,24 @@ describe('OrderService.placeOrder', () => {
       expect.objectContaining({
         status: OrderStatus.REJECTED,
         reason: 'INSUFFICIENT_BALANCE',
+        cellId: getCellId(cell),
       }),
     );
+
+    // Still has $25 open on cell, so 3 more $25 fit ($100) and a 4th rejects with CELL_LIMIT
+    for (let i = 0; i < 3; i++) {
+      await service.placeOrder('user-1', {
+        marketId: 'NVDA',
+        amount: '25',
+        cell,
+      });
+    }
+    await expect(
+      service.placeOrder('user-1', {
+        marketId: 'NVDA',
+        amount: '1',
+        cell,
+      }),
+    ).rejects.toMatchObject({ reason: 'CELL_LIMIT' });
   });
 });

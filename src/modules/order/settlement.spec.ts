@@ -420,4 +420,228 @@ describe('OrderService settlement & void', () => {
     expect(tslaOrder.status).toBe(OrderStatus.SETTLED);
     expect(tslaOrder.settledWin).toBe(false);
   });
+
+  it('crossing between two samples wins', async () => {
+    const order = await placeViaService({
+      gridTs: 4_000,
+      startTs: 10_000,
+      endTs: 15_000,
+      lowerPrice: '154.61',
+      upperPrice: '154.64',
+    });
+
+    await service.handleSample({
+      ticker: 'NVDA',
+      tsMs: 9_800,
+      price: 154.5,
+    });
+    expect(order.status).toBe(OrderStatus.OPEN);
+
+    await service.handleSample({
+      ticker: 'NVDA',
+      tsMs: 10_400,
+      price: 154.7,
+    });
+
+    expect(order.status).toBe(OrderStatus.SETTLED);
+    expect(order.settledWin).toBe(true);
+    expect(order.settledAt).toBe(10_400);
+    expect(accountService.settleBet).toHaveBeenCalledWith(
+      'user-1',
+      '10',
+      true,
+      '2.3100',
+      'NVDA',
+      order.orderId,
+    );
+  });
+
+  it('crossing outside the window does not count', async () => {
+    const order = await placeViaService({
+      gridTs: 4_000,
+      startTs: 10_000,
+      endTs: 15_000,
+      lowerPrice: '154.61',
+      upperPrice: '154.64',
+    });
+
+    await service.handleSample({
+      ticker: 'NVDA',
+      tsMs: 9_800,
+      price: 154.5,
+    });
+    await service.handleSample({
+      ticker: 'NVDA',
+      tsMs: 12_500,
+      price: 154.5,
+    });
+    await service.handleSample({
+      ticker: 'NVDA',
+      tsMs: 14_900,
+      price: 154.5,
+    });
+    expect(order.status).toBe(OrderStatus.OPEN);
+
+    await service.handleSample({
+      ticker: 'NVDA',
+      tsMs: 15_100,
+      price: 154.7,
+    });
+
+    expect(order.status).toBe(OrderStatus.SETTLED);
+    expect(order.settledWin).toBe(false);
+  });
+
+  it('gap over 3 s resets the segment', async () => {
+    const orderInGap = await placeViaService({
+      gridTs: 9_000,
+      startTs: 15_000,
+      endTs: 20_000,
+      lowerPrice: '154.55',
+      upperPrice: '154.58',
+    });
+    const orderAfterGap = await placeViaService({
+      gridTs: 9_000,
+      startTs: 15_000,
+      endTs: 20_000,
+      lowerPrice: '154.72',
+      upperPrice: '154.75',
+    });
+
+    await service.handleSample({
+      ticker: 'NVDA',
+      tsMs: 10_000,
+      price: 154.5,
+    });
+    await service.handleSample({
+      ticker: 'NVDA',
+      tsMs: 13_200,
+      price: 154.7,
+    });
+    await service.handleSample({
+      ticker: 'NVDA',
+      tsMs: 15_100,
+      price: 154.8,
+    });
+
+    expect(orderInGap.status).toBe(OrderStatus.OPEN);
+    expect(orderAfterGap.status).toBe(OrderStatus.SETTLED);
+    expect(orderAfterGap.settledWin).toBe(true);
+  });
+
+  it('out-of-order sample counts as a point and does not move the previous price', async () => {
+    const order = await placeViaService({
+      gridTs: 4_000,
+      startTs: 10_000,
+      endTs: 15_000,
+      lowerPrice: '154.65',
+      upperPrice: '154.68',
+    });
+
+    await service.handleSample({
+      ticker: 'NVDA',
+      tsMs: 11_000,
+      price: 154.5,
+    });
+
+    // Out-of-order sample: 154.75 is outside [154.65, 154.68] as a point,
+    // and must not move prevCents away from 154.50.
+    await service.handleSample({
+      ticker: 'NVDA',
+      tsMs: 10_500,
+      price: 154.75,
+    });
+    expect(order.status).toBe(OrderStatus.OPEN);
+
+    // In-order sample at 154.70 forms segment 154.50 -> 154.70, crossing [154.65, 154.68].
+    await service.handleSample({
+      ticker: 'NVDA',
+      tsMs: 12_000,
+      price: 154.7,
+    });
+    expect(order.status).toBe(OrderStatus.SETTLED);
+    expect(order.settledWin).toBe(true);
+  });
+
+  it('all coins on a cell settle on the same touching sample', async () => {
+    const order1 = await placeViaService({}, '5');
+    const order2 = await placeViaService({}, '10');
+
+    await service.handleSample({
+      ticker: 'NVDA',
+      tsMs: baseWindowStart + 1000,
+      price: 157.52,
+    });
+
+    expect(order1.status).toBe(OrderStatus.SETTLED);
+    expect(order1.settledWin).toBe(true);
+    expect(order2.status).toBe(OrderStatus.SETTLED);
+    expect(order2.settledWin).toBe(true);
+    expect(accountService.settleBet).toHaveBeenCalledTimes(2);
+  });
+
+  it('cell stake is released on settle and void', async () => {
+    for (let i = 0; i < 4; i++) {
+      await placeViaService({}, '25');
+    }
+    await expect(placeViaService({}, '1')).rejects.toMatchObject({
+      reason: 'CELL_LIMIT',
+    });
+
+    await service.handleSample({
+      ticker: 'NVDA',
+      tsMs: baseWindowStart + 1000,
+      price: 157.52,
+    });
+
+    // All $100 settled -> stake released, can place $100 again on the same cell
+    const rePlacedOrders = [];
+    for (let i = 0; i < 4; i++) {
+      const rePlaced = await placeViaService({}, '25');
+      expect(rePlaced.status).toBe(OrderStatus.OPEN);
+      rePlacedOrders.push(rePlaced);
+    }
+    await expect(placeViaService({}, '1')).rejects.toMatchObject({
+      reason: 'CELL_LIMIT',
+    });
+
+    // Now void via disconnect overlapping [baseWindowStart, baseWindowEnd) and verify stake is released again
+    feedHealthStore.markDisconnected(baseWindowStart + 500);
+    await service.voidStaleOrders(baseWindowStart + 1000);
+    feedHealthStore.markConnected(baseWindowStart + 1200);
+    for (const o of rePlacedOrders) {
+      expect(o.status).toBe(OrderStatus.VOIDED);
+    }
+
+    for (let i = 0; i < 4; i++) {
+      const afterVoid = await placeViaService({}, '25');
+      expect(afterVoid.status).toBe(OrderStatus.OPEN);
+    }
+  });
+
+  it('reload after restart rebuilds cell stakes from open orders', async () => {
+    const orderA = makeOrder({
+      orderId: 'user-1:NVDA:1795000010000:1795000015000:157.50:157.53:uuid-1',
+      amount: '25',
+    });
+    const orderB = makeOrder({
+      orderId: 'user-1:NVDA:1795000010000:1795000015000:157.50:157.53:uuid-2',
+      amount: '25',
+    });
+    const orderC = makeOrder({
+      orderId: 'user-1:NVDA:1795000010000:1795000015000:157.50:157.53:uuid-3',
+      amount: '25',
+    });
+    orderRepository.find.mockResolvedValueOnce([orderA, orderB, orderC]);
+
+    await service.onModuleInit();
+
+    // $75 already open -> $25 fits, next $1 hits CELL_LIMIT
+    const fourth = await placeViaService({}, '25');
+    expect(fourth.status).toBe(OrderStatus.OPEN);
+
+    await expect(placeViaService({}, '1')).rejects.toMatchObject({
+      reason: 'CELL_LIMIT',
+    });
+  });
 });

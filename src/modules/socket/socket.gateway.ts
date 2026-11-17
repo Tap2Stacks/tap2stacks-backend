@@ -82,6 +82,9 @@ export class SocketGateway {
           amount: payload.amount,
           cell: payload.cell,
           marketId: payload.marketId,
+          ...(payload.clientTapId !== undefined
+            ? { clientTapId: payload.clientTapId }
+            : {}),
         });
       } catch (e) {
         const errMsg = e instanceof Error ? e.message : String(e);

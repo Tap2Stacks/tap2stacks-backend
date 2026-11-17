@@ -16,6 +16,8 @@ import {
 } from 'src/libs/cell';
 import { TokenBucket } from 'src/libs/token-bucket';
 import { Repository } from 'typeorm';
+import { uuidv7 } from 'uuidv7';
+import { segmentTouchesBand } from 'src/libs/touch';
 import { AccountService } from '../account/account.service';
 import { EngineClientService } from '../engine/engine-client.service';
 import { CELL_SIGNER_KEY_TOKEN, EngineSample } from '../engine/engine.types';
@@ -35,9 +37,21 @@ export { OrderRejectedError, RejectReason };
 const ALLOWED_TICKERS = new Set(['NVDA', 'TSLA']);
 const MIN_STAKE = 1;
 const MAX_STAKE = 25;
+export const MAX_CELL_STAKE = 100;
 const QUOTE_FRESHNESS_MS = 1500;
 const WINDOW_LEAD_TIME_MS = 5000;
 const VOID_GAP_MS = 3000;
+const CLIENT_TAP_ID_RE = /^[A-Za-z0-9-]+$/;
+
+function sanitizeClientTapId(raw: unknown): string | undefined {
+    if (typeof raw !== 'string') {
+        return undefined;
+    }
+    if (raw.length === 0 || raw.length > 64 || !CLIENT_TAP_ID_RE.test(raw)) {
+        return undefined;
+    }
+    return raw;
+}
 
 function intervalOverlapsWindow(
     from: number,
@@ -55,10 +69,11 @@ function intervalOverlapsWindow(
 export class OrderService implements OnModuleInit {
     private readonly logger = new Logger(OrderService.name);
 
-    private userCellIndex = new Map<string, Map<string, boolean>>();
+    private userCellStake = new Map<string, Map<string, number>>();
     private activeOrdersByBucket = new Map<string, Map<string, Order>>();
     private rateLimiters = new Map<string, TokenBucket>();
     private readonly lastSampleTsByTicker = new Map<string, number>();
+    private readonly lastPriceCentsByTicker = new Map<string, number>();
     private readonly tickerQueues = new Map<string, Promise<void>>();
 
     constructor(
@@ -102,7 +117,7 @@ export class OrderService implements OnModuleInit {
         const activeOrders = await this.getPeristedActiveOrders();
         this.logger.debug(`Loaded ${activeOrders.length} active orders from DB`);
         this.activeOrdersByBucket = this.buildActiveOrdersByBucket(activeOrders);
-        this.userCellIndex = this.buildUserCellIndex(activeOrders);
+        this.userCellStake = this.buildUserCellStake(activeOrders);
         for (const order of activeOrders) {
             this.exposureTracker.add(order);
         }
@@ -123,17 +138,46 @@ export class OrderService implements OnModuleInit {
         return bucketMap;
     }
 
-    buildUserCellIndex(activeOrders: Order[]) {
-        const userCellIndex = new Map<string, Map<string, boolean>>();
+    buildUserCellStake(activeOrders: Order[]): Map<string, Map<string, number>> {
+        const userCellStake = new Map<string, Map<string, number>>();
         for (const order of activeOrders) {
-            let userCells = userCellIndex.get(order.userId);
+            let userCells = userCellStake.get(order.userId);
             if (!userCells) {
                 userCells = new Map();
-                userCellIndex.set(order.userId, userCells);
+                userCellStake.set(order.userId, userCells);
             }
-            userCells.set(getCellId(buildCellFromOrder(order)), true);
+            const cellId = getCellId(buildCellFromOrder(order));
+            const current = userCells.get(cellId) ?? 0;
+            userCells.set(
+                cellId,
+                new BigNumber(current).plus(order.amount).toNumber(),
+            );
         }
-        return userCellIndex;
+        return userCellStake;
+    }
+
+    private adjustUserCellStake(
+        userId: string,
+        cellId: string,
+        delta: BigNumber.Value,
+    ): void {
+        let userCells = this.userCellStake.get(userId);
+        const current = userCells?.get(cellId) ?? 0;
+        const next = new BigNumber(current).plus(delta);
+        if (next.lte(0)) {
+            if (userCells) {
+                userCells.delete(cellId);
+                if (userCells.size === 0) {
+                    this.userCellStake.delete(userId);
+                }
+            }
+            return;
+        }
+        if (!userCells) {
+            userCells = new Map();
+            this.userCellStake.set(userId, userCells);
+        }
+        userCells.set(cellId, next.toNumber());
     }
 
     private async rejectOrder(
@@ -144,12 +188,15 @@ export class OrderService implements OnModuleInit {
     ): Promise<never> {
         const ticker = dto?.marketId ?? dto?.cell?.ticker ?? '';
         const cellId = dto?.cell ? getCellId(dto.cell) : '';
-        const orderId = `${userId}:${cellId}`;
+        const orderId = `${userId}:${cellId}:${uuidv7()}`;
+        const clientTapId = sanitizeClientTapId(dto?.clientTapId);
         await this.events.emitOrderUpdate({
             orderId,
             userId,
             marketId: dto?.marketId ?? '',
             ticker,
+            cellId,
+            ...(clientTapId !== undefined ? { clientTapId } : {}),
             amount: String(dto?.amount ?? ''),
             cell: dto?.cell,
             status: OrderStatus.REJECTED,
@@ -234,22 +281,18 @@ export class OrderService implements OnModuleInit {
             return this.rejectOrder(userId, dto, 'RATE_LIMITED');
         }
 
-        // 8. Duplicate check
+        // 8. Per-cell stake limit check
         const cellId = getCellId(dto.cell);
-        const existingUserCells = this.userCellIndex.get(userId);
-        if (existingUserCells?.get(cellId)) {
-            return this.rejectOrder(userId, dto, 'DUPLICATE');
+        const clientTapId = sanitizeClientTapId(dto?.clientTapId);
+        const currentStake = this.userCellStake.get(userId)?.get(cellId) ?? 0;
+        if (new BigNumber(currentStake).plus(amountBn).gt(MAX_CELL_STAKE)) {
+            return this.rejectOrder(userId, dto, 'CELL_LIMIT');
         }
 
-        const orderId = `${userId}:${cellId}`;
+        const orderId = `${userId}:${cellId}:${uuidv7()}`;
 
-        // Optimistic lock before calling ledger to prevent concurrent double-spend
-        let userCells = existingUserCells;
-        if (!userCells) {
-            userCells = new Map();
-            this.userCellIndex.set(userId, userCells);
-        }
-        userCells.set(cellId, true);
+        // Optimistic lock before calling ledger to prevent concurrent over-cap
+        this.adjustUserCellStake(userId, cellId, amountBn);
 
         // 9. Ledger debit
         try {
@@ -257,13 +300,10 @@ export class OrderService implements OnModuleInit {
                 userId,
                 amountStr,
                 ticker,
-                cellId,
+                orderId,
             );
         } catch (error) {
-            userCells.delete(cellId);
-            if (userCells.size === 0) {
-                this.userCellIndex.delete(userId);
-            }
+            this.adjustUserCellStake(userId, cellId, amountBn.negated());
             const msg = error instanceof Error ? error.message : String(error);
             if (
                 error instanceof BadRequestException ||
@@ -281,6 +321,8 @@ export class OrderService implements OnModuleInit {
                 userId,
                 marketId: ticker,
                 ticker,
+                cellId,
+                ...(clientTapId !== undefined ? { clientTapId } : {}),
                 amount: amountStr,
                 cell: dto.cell,
                 status: OrderStatus.REJECTED,
@@ -321,6 +363,8 @@ export class OrderService implements OnModuleInit {
                 userId,
                 marketId: ticker,
                 ticker,
+                cellId,
+                ...(clientTapId !== undefined ? { clientTapId } : {}),
                 amount: amountStr,
                 cell: dto.cell,
                 status: OrderStatus.REJECTED,
@@ -339,6 +383,8 @@ export class OrderService implements OnModuleInit {
             userId,
             marketId: ticker,
             ticker,
+            cellId,
+            ...(clientTapId !== undefined ? { clientTapId } : {}),
             amount: amountStr,
             cell: dto.cell,
             status: OrderStatus.OPEN,
@@ -352,6 +398,7 @@ export class OrderService implements OnModuleInit {
         return this.runSerializedForTicker(sample.ticker, async () => {
             const ticker = sample.ticker;
             const prevTs = this.lastSampleTsByTicker.get(ticker);
+            const isOutOfOrder = prevTs !== undefined && sample.tsMs < prevTs;
             const hasGapVoid =
                 prevTs !== undefined &&
                 sample.tsMs > prevTs &&
@@ -361,6 +408,10 @@ export class OrderService implements OnModuleInit {
                 sample.tsMs,
             );
             const sampleCents = Math.round(sample.price * 100);
+            const prevCents =
+                hasGapVoid || isOutOfOrder
+                    ? undefined
+                    : this.lastPriceCentsByTicker.get(ticker);
 
             const prefix = `${ticker}:`;
             const candidateOrders: Order[] = [];
@@ -404,8 +455,12 @@ export class OrderService implements OnModuleInit {
                     const lowerCents = priceToCents(order.lowerPrice);
                     const upperCents = priceToCents(order.upperPrice);
                     if (
-                        sampleCents >= lowerCents &&
-                        sampleCents <= upperCents
+                        segmentTouchesBand(
+                            prevCents,
+                            sampleCents,
+                            lowerCents,
+                            upperCents,
+                        )
                     ) {
                         settlePromises.push(
                             this.settleOrder(order, sample.tsMs, true),
@@ -420,10 +475,10 @@ export class OrderService implements OnModuleInit {
 
             await Promise.all(settlePromises);
 
-            this.lastSampleTsByTicker.set(
-                ticker,
-                prevTs === undefined ? sample.tsMs : Math.max(prevTs, sample.tsMs),
-            );
+            if (!isOutOfOrder) {
+                this.lastSampleTsByTicker.set(ticker, sample.tsMs);
+                this.lastPriceCentsByTicker.set(ticker, sampleCents);
+            }
         });
     }
 
@@ -494,7 +549,7 @@ export class OrderService implements OnModuleInit {
             win,
             order.rewardRate,
             order.marketId,
-            cellId,
+            order.orderId,
         );
 
         order.status = OrderStatus.SETTLED;
@@ -513,6 +568,7 @@ export class OrderService implements OnModuleInit {
             userId: order.userId,
             marketId: order.marketId,
             ticker,
+            cellId,
             cell,
             status: OrderStatus.SETTLED,
             amount: order.amount,
@@ -542,7 +598,7 @@ export class OrderService implements OnModuleInit {
             order.userId,
             order.amount,
             order.marketId,
-            cellId,
+            order.orderId,
         );
 
         order.status = OrderStatus.VOIDED;
@@ -561,6 +617,7 @@ export class OrderService implements OnModuleInit {
             userId: order.userId,
             marketId: order.marketId,
             ticker,
+            cellId,
             cell,
             status: OrderStatus.VOIDED,
             amount: order.amount,
@@ -576,13 +633,11 @@ export class OrderService implements OnModuleInit {
         const cellId = getCellId(buildCellFromOrder(order));
         const ticker = order.ticker || order.marketId;
 
-        const userCells = this.userCellIndex.get(order.userId);
-        if (userCells) {
-            userCells.delete(cellId);
-            if (userCells.size === 0) {
-                this.userCellIndex.delete(order.userId);
-            }
-        }
+        this.adjustUserCellStake(
+            order.userId,
+            cellId,
+            new BigNumber(order.amount).negated(),
+        );
 
         const bucketKey = this.getBucketKey(ticker, order.cellTimeStart);
         const bucket = this.activeOrdersByBucket.get(bucketKey);

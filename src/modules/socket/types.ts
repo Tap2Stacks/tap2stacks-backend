@@ -52,6 +52,8 @@ export interface OrderUpdateMessage {
     userId: string;
     marketId: string;
     ticker?: string;
+    cellId: string;
+    clientTapId?: string;
     amount: string;
     cell: any;
 
@@ -102,6 +104,7 @@ export interface PlaceOrderPayload {
     amount: string;
     cell: Cell;
     userSignature: string;
+    clientTapId?: string;
 }
 
 export function getUserRoom(userId: string): string {

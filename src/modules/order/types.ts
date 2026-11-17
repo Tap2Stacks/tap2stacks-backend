@@ -13,7 +13,7 @@ export type RejectReason =
     | 'BAD_SIGNATURE'
     | 'FEED_PAUSED'
     | 'RATE_LIMITED'
-    | 'DUPLICATE'
+    | 'CELL_LIMIT'
     | 'INSUFFICIENT_BALANCE';
 
 export class OrderRejectedError extends Error {
