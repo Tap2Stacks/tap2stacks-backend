@@ -4,11 +4,25 @@ import { NestExpressApplication } from '@nestjs/platform-express';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import compression from 'compression';
 import cookieParser from 'cookie-parser';
+import { Request } from 'express';
 import helmet from 'helmet';
 import morgan from 'morgan';
 
 import { env } from './config';
+import { redactSensitivePath } from './libs/redact-url';
 import { AppModule } from './modules/app.module';
+
+morgan.token('redacted-url', (req: Request) =>
+  redactSensitivePath(req.originalUrl || req.url || ''),
+);
+morgan.token('redacted-referrer', (req: Request) => {
+  const ref = req.headers.referer || req.headers.referrer;
+  const raw = Array.isArray(ref) ? ref[0] : ref;
+  return raw ? redactSensitivePath(raw) : undefined;
+});
+
+const REDACTED_COMBINED_LOG =
+  ':remote-addr - :remote-user [:date[clf]] ":method :redacted-url HTTP/:http-version" :status :res[content-length] ":redacted-referrer" ":user-agent"';
 
 const setMiddleware = (app: NestExpressApplication) => {
   app.use(helmet());
@@ -18,7 +32,7 @@ const setMiddleware = (app: NestExpressApplication) => {
     origin: true,
   });
 
-  app.use(morgan('combined'));
+  app.use(morgan(REDACTED_COMBINED_LOG));
 
   app.use(compression());
 

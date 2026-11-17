@@ -307,16 +307,38 @@ describe('paymaster proxy', () => {
     ).rejects.toMatchObject({ status: 502 });
   });
 
-  it('protects PaymasterController with PaymasterRateGuard and JwtAuthGuard', async () => {
+  it('protects PaymasterController routes with PaymasterRateGuard, JwtAuthGuard, and PaymasterTokenGuard', async () => {
     const { PaymasterController } = await import('./paymaster.controller');
     const { PaymasterRateGuard } = await import('./paymaster-rate.guard');
+    const { PaymasterTokenGuard } = await import('./paymaster-token.guard');
     const { JwtAuthGuard } = await import('../auth/guards/jwt-auth.guard');
 
-    const guards = Reflect.getMetadata(GUARDS_METADATA, PaymasterController);
-    expect(guards).toEqual([PaymasterRateGuard, JwtAuthGuard]);
+    const classGuards = Reflect.getMetadata(
+      GUARDS_METADATA,
+      PaymasterController,
+    );
+    expect(classGuards).toEqual([PaymasterRateGuard]);
+
+    const tokenRouteGuards = Reflect.getMetadata(
+      GUARDS_METADATA,
+      PaymasterController.prototype.issueToken,
+    );
+    expect(tokenRouteGuards).toEqual([JwtAuthGuard]);
+
+    const forwardRouteGuards = Reflect.getMetadata(
+      GUARDS_METADATA,
+      PaymasterController.prototype.forward,
+    );
+    expect(forwardRouteGuards).toEqual([PaymasterTokenGuard]);
 
     const forward = vi.fn().mockResolvedValue({ ok: true });
-    const controller = new PaymasterController({ forward } as any);
+    const issue = vi.fn().mockReturnValue({ token: 'tok', expiresAt: 123 });
+    const controller = new PaymasterController(
+      { forward } as any,
+      {
+        issue,
+      } as any,
+    );
     await expect(
       controller.forward({ test: true }, { address: sender }),
     ).resolves.toEqual({ ok: true });

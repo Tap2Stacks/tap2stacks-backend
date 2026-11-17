@@ -11,12 +11,16 @@ import {
   PAYMASTER_RPC,
   PaymasterService,
 } from './paymaster.service';
+import { PaymasterTokenGuard } from './paymaster-token.guard';
+import { PaymasterTokenService } from './paymaster-token.service';
 
 @Module({
   controllers: [PaymasterController],
   providers: [
     PaymasterService,
     PaymasterRateGuard,
+    PaymasterTokenService,
+    PaymasterTokenGuard,
     {
       provide: PAYMASTER_CONFIG,
       useFactory: () => ({
