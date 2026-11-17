@@ -25,7 +25,7 @@ export const envVarsSchema = Joi.object()
     VAULT_ADDRESS: Joi.string().allow('').default(''),
     TUSDC_ADDRESS: Joi.string().allow('').default(''),
     PROOF_ANCHOR_ADDRESS: Joi.string().allow('').default(''),
-    DEPLOY_BLOCK: Joi.number().integer().min(0).default(0),
+    DEPLOY_BLOCK: Joi.number().integer().min(0).optional(),
 
     BOT_WALLETS: Joi.string().allow('').default(''),
 
@@ -37,7 +37,7 @@ export const envVarsSchema = Joi.object()
     JWT_SECRET: Joi.string().required(),
     ADMIN_API_KEY: Joi.string().min(32).required(),
     CELL_SIGNER_KEY: Joi.string().required(),
-    WITHDRAW_SIGNER_PRIVATE_KEY: Joi.string().required(),
+    WITHDRAW_SIGNER_PRIVATE_KEY: Joi.string().allow('').default(''),
     RELAYER_PRIVATE_KEY: Joi.string().required(),
     CDP_PAYMASTER_URL: Joi.string().allow('').default(''),
   })
@@ -75,7 +75,10 @@ export function parseEnv(rawEnv: NodeJS.ProcessEnv = process.env) {
       vaultAddress: envVars.VAULT_ADDRESS as string,
       tusdcAddress: envVars.TUSDC_ADDRESS as string,
       proofAnchorAddress: envVars.PROOF_ANCHOR_ADDRESS as string,
-      deployBlock: Number(envVars.DEPLOY_BLOCK),
+      deployBlock:
+        envVars.DEPLOY_BLOCK === undefined
+          ? null
+          : Number(envVars.DEPLOY_BLOCK),
     },
     botWallets: String(envVars.BOT_WALLETS || '')
       .split(',')
