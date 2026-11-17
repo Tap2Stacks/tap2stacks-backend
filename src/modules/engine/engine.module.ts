@@ -1,4 +1,4 @@
-import { Module } from '@nestjs/common';
+import { forwardRef, Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { SocketModule } from '../socket/socket.module';
 import { EngineClientService } from './engine-client.service';
@@ -13,7 +13,7 @@ import { LatestQuoteStore } from './latest-quote.store';
 import { PriceSample } from './price-sample.entity';
 
 @Module({
-    imports: [TypeOrmModule.forFeature([PriceSample]), SocketModule],
+    imports: [TypeOrmModule.forFeature([PriceSample]), forwardRef(() => SocketModule)],
     providers: [
         LatestQuoteStore,
         FeedHealthStore,

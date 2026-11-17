@@ -4,7 +4,6 @@ export class AddOrderTickerAndVoidedStatus1795000000000
   implements MigrationInterface
 {
   name = 'AddOrderTickerAndVoidedStatus1795000000000';
-  transaction = false;
 
   public async up(queryRunner: QueryRunner): Promise<void> {
     await queryRunner.query(

@@ -1,4 +1,4 @@
-import { Injectable, UnauthorizedException, BadRequestException } from '@nestjs/common';
+import { Inject, Injectable, UnauthorizedException, BadRequestException } from '@nestjs/common';
 import { InjectRedis } from '@nestjs-modules/ioredis';
 import Redis from 'ioredis';
 import { ethers } from 'ethers';
@@ -6,15 +6,19 @@ import * as jwt from 'jsonwebtoken';
 import { v4 as uuidv4 } from 'uuid';
 import { env } from '../../config';
 import * as crypto from 'crypto';
+import { SIGNATURE_VERIFIER, SignatureVerifier } from './signature-verifier';
 
 @Injectable()
 export class AuthService {
     private readonly wssKeyCache = new Map<string, { key: string, expiresAt: number }>();
 
-    constructor(@InjectRedis() private readonly redis: Redis) { }
+    constructor(
+        @InjectRedis() private readonly redis: Redis,
+        @Inject(SIGNATURE_VERIFIER) private readonly signatureVerifier: SignatureVerifier,
+    ) { }
 
     async generateChallenge(address: string): Promise<string> {
-        const challenge = `Sign this message to login to TapTrading: ${uuidv4()}`;
+        const challenge = `Sign this message to log in to tap2stacks: ${uuidv4()}`;
         // Store challenge with 5 minutes TTL
         await this.redis.set(`auth:challenge:${ethers.getAddress(address)}`, challenge, 'EX', 300);
         return challenge;
@@ -28,13 +32,9 @@ export class AuthService {
             throw new BadRequestException('Challenge not found or expired. Please request a new challenge.');
         }
 
-        try {
-            const recoveredAddress = ethers.verifyMessage(challenge, signature);
-            if (recoveredAddress !== normalizedAddress) {
-                throw new UnauthorizedException('Invalid signature');
-            }
-        } catch (error) {
-            throw new UnauthorizedException('Invalid signature format');
+        const isValid = await this.signatureVerifier.verify(normalizedAddress, challenge, signature);
+        if (!isValid) {
+            throw new UnauthorizedException('Invalid signature');
         }
 
         // Clean up challenge
