@@ -406,4 +406,5 @@ contracts
 **/test.ts
 
 docker.env
-benchmark-results/*.handoff/
+benchmark-results/*
+.handoff/
