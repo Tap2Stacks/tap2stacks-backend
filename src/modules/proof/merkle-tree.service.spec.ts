@@ -6,12 +6,13 @@ import { Order } from '../order/entities/order.entity';
 const buildSettledOrder = (overrides: Partial<Order> = {}): Order =>
   ({
     orderId: 'user-a:cell-1',
-    userId: 'user-a',
-    marketId: 'btc',
+    userId: '0x1111111111111111111111111111111111111111',
+    marketId: 'NVDA',
+    ticker: 'NVDA',
     cellTimeStart: 1000,
     cellTimeEnd: 2000,
-    lowerPrice: '95000',
-    upperPrice: '96000',
+    lowerPrice: '150.00',
+    upperPrice: '155.00',
     amount: '100',
     rewardRate: '1.9',
     placedAt: 900,
@@ -22,27 +23,60 @@ const buildSettledOrder = (overrides: Partial<Order> = {}): Order =>
   }) as Order;
 
 describe('MerkleTreeService', () => {
-  it('creates deterministic settled order hashes and merkle roots', () => {
+  it('creates deterministic tap2stacks.settledOrder.v1 leaves including VOIDED taps with ticker and status', () => {
     const service = new MerkleTreeService();
-    const firstOrder = buildSettledOrder();
-    const secondOrder = buildSettledOrder({
+    const wonOrder = buildSettledOrder();
+    const lostOrder = buildSettledOrder({
       orderId: 'user-b:cell-2',
-      userId: 'user-b',
+      userId: '0x2222222222222222222222222222222222222222',
+      ticker: 'TSLA',
+      marketId: 'TSLA',
       settledAt: 1800,
       settledWin: false,
     });
+    const voidedOrder = buildSettledOrder({
+      orderId: 'user-c:cell-3',
+      userId: '0x3333333333333333333333333333333333333333',
+      ticker: 'NVDA',
+      marketId: 'NVDA',
+      status: OrderStatus.VOIDED,
+      settledAt: 1600,
+      settledWin: undefined,
+    });
 
-    const firstRun = service.prepareSettledOrders([secondOrder, firstOrder]);
-    const secondRun = service.prepareSettledOrders([firstOrder, secondOrder]);
+    const firstRun = service.prepareSettledOrders([
+      lostOrder,
+      voidedOrder,
+      wonOrder,
+    ]);
+    const secondRun = service.prepareSettledOrders([
+      wonOrder,
+      lostOrder,
+      voidedOrder,
+    ]);
 
     expect(firstRun.leaves.map((leaf) => leaf.order.orderId)).toEqual([
       'user-a:cell-1',
+      'user-c:cell-3',
       'user-b:cell-2',
     ]);
     expect(firstRun.merkleRoot).toBe(secondRun.merkleRoot);
-    expect(firstRun.leaves[0].serialized).toContain(
-      '"schema":"tap.settledOrder.v1"',
-    );
+    expect(firstRun.leaves[0].canonical).toMatchObject({
+      schema: 'tap2stacks.settledOrder.v1',
+      ticker: 'NVDA',
+      status: 'WON',
+    });
+    expect(firstRun.leaves[1].canonical).toMatchObject({
+      schema: 'tap2stacks.settledOrder.v1',
+      ticker: 'NVDA',
+      status: 'VOIDED',
+      settledWin: null,
+    });
+    expect(firstRun.leaves[2].canonical).toMatchObject({
+      schema: 'tap2stacks.settledOrder.v1',
+      ticker: 'TSLA',
+      status: 'LOST',
+    });
     expect(firstRun.leaves[0].leafHash).toMatch(/^0x[0-9a-f]{64}$/);
   });
 
@@ -61,13 +95,15 @@ describe('MerkleTreeService', () => {
       buildSettledOrder(),
       buildSettledOrder({
         orderId: 'user-b:cell-2',
-        userId: 'user-b',
+        userId: '0x2222222222222222222222222222222222222222',
         settledAt: 1800,
       }),
       buildSettledOrder({
         orderId: 'user-c:cell-3',
-        userId: 'user-c',
+        userId: '0x3333333333333333333333333333333333333333',
+        status: OrderStatus.VOIDED,
         settledAt: 2200,
+        settledWin: undefined,
       }),
     ]);
 
@@ -89,26 +125,10 @@ describe('MerkleTreeService', () => {
     const service = new MerkleTreeService();
     const batch = service.prepareSettledOrders([
       buildSettledOrder({ orderId: 'user-a:cell-1', settledAt: 1500 }),
-      buildSettledOrder({
-        orderId: 'user-b:cell-2',
-        userId: 'user-b',
-        settledAt: 1800,
-      }),
-      buildSettledOrder({
-        orderId: 'user-c:cell-3',
-        userId: 'user-c',
-        settledAt: 2200,
-      }),
-      buildSettledOrder({
-        orderId: 'user-d:cell-4',
-        userId: 'user-d',
-        settledAt: 2600,
-      }),
-      buildSettledOrder({
-        orderId: 'user-e:cell-5',
-        userId: 'user-e',
-        settledAt: 3000,
-      }),
+      buildSettledOrder({ orderId: 'user-b:cell-2', settledAt: 1800 }),
+      buildSettledOrder({ orderId: 'user-c:cell-3', settledAt: 2200 }),
+      buildSettledOrder({ orderId: 'user-d:cell-4', settledAt: 2600 }),
+      buildSettledOrder({ orderId: 'user-e:cell-5', settledAt: 3000 }),
     ]);
 
     const proof = service.buildMerkleProof(

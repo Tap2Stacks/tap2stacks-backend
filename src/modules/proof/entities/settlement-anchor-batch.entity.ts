@@ -1,10 +1,26 @@
-import { CreateDateColumn, Column, Entity, PrimaryColumn } from 'typeorm';
+import { Column, CreateDateColumn, Entity, PrimaryColumn } from 'typeorm';
+import { BigIntMsTransformer } from 'src/libs/transformers';
 import { SettlementAnchorBatchStatus } from '../types';
 
 @Entity('settlement_anchor_batches')
 export class SettlementAnchorBatch {
   @PrimaryColumn()
   batchId: string;
+
+  @Column({ type: 'integer', nullable: true })
+  index: number | null;
+
+  @Column({
+    type: 'bigint',
+    transformer: BigIntMsTransformer,
+  })
+  fromMs: number;
+
+  @Column({
+    type: 'bigint',
+    transformer: BigIntMsTransformer,
+  })
+  toMs: number;
 
   @Column({
     type: 'enum',
@@ -16,33 +32,24 @@ export class SettlementAnchorBatch {
   @Column({ type: 'integer' })
   orderCount: number;
 
-  @Column({ nullable: true })
-  topicId?: string;
-
-  @Column({ nullable: true })
-  sequenceNumber?: string;
-
-  @Column({ nullable: true })
-  consensusTimestamp?: string;
-
-  @Column({ nullable: true })
-  runningHash?: string;
+  @Column()
+  tapsRoot: string;
 
   @Column()
-  merkleRoot: string;
+  priceLogHash: string;
 
-  @Column()
-  payloadHash: string;
+  @Column({ type: 'varchar', nullable: true })
+  txHash: string | null;
 
-  @Column({ type: 'text' })
-  submittedPayload: string;
+  @Column({ type: 'integer', default: 0 })
+  attempts: number;
+
+  @Column({ type: 'text', nullable: true })
+  lastError: string | null;
 
   @CreateDateColumn()
   createdAt: Date;
 
   @Column({ type: 'timestamp', nullable: true })
-  submittedAt?: Date;
-
-  @Column({ type: 'text', nullable: true })
-  errorMessage?: string;
+  submittedAt: Date | null;
 }

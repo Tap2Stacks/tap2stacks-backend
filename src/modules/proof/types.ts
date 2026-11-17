@@ -6,15 +6,19 @@ export enum SettlementAnchorBatchStatus {
   FAILED = 'FAILED',
 }
 
+export type SettledTapStatus = 'WON' | 'LOST' | 'VOIDED';
+
 export type CanonicalSettledOrder = {
-  schema: 'tap.settledOrder.v1';
+  schema: 'tap2stacks.settledOrder.v1';
   orderId: string;
   userId: string;
   marketId: string;
+  ticker: string;
+  status: SettledTapStatus;
   amount: string;
   rewardRate: string;
   settledAt: number;
-  settledWin: boolean;
+  settledWin: boolean | null;
   cellTimeStart: number;
   cellTimeEnd: number;
   lowerPrice: string;
@@ -41,110 +45,57 @@ export type MerkleProofStep = {
   hash: string;
 };
 
-export type SettlementAnchorBatchDraft = {
-  batchId: string;
-  orderCount: number;
-  merkleRoot: string;
-  windowStart: number | null;
-  windowEnd: number | null;
-  leaves: PreparedSettledOrderLeaf[];
-};
-
 export type SettledOrderAnchorPayload = {
-  schema: 'tap.settledOrderAnchor.v1';
-  batchId: string;
-  recordType: 'settled_orders';
-  hashAlg: 'sha256';
-  merkleRoot: string;
-  orderCount: number;
-  windowStart: number | null;
-  windowEnd: number | null;
-  createdAt: string;
+  schema: 'tap2stacks.settledOrderAnchor.v1';
+  index: number;
+  fromMs: number;
+  toMs: number;
+  tapsRoot: string;
+  priceLogHash: string;
+  txHash: string;
 };
 
-export type SubmitAnchorMessageInput = {
-  batchId: string;
-  payload: string;
+export type ProofPostResult = {
+  txHash: string;
+  index: number;
 };
 
-export type SubmitAnchorMessageResult = {
-  topicId: string;
-  sequenceNumber: string;
-  consensusTimestamp: string;
-  runningHash: string;
-};
-
-export type VerifyAnchorMessageInput = {
-  topicId: string;
-  sequenceNumber: string;
-  expectedPayload?: string;
-};
-
-export type VerifyAnchorMessageResult = {
-  found: boolean;
-  topicId: string;
-  sequenceNumber: string;
-  consensusTimestamp?: string;
-  runningHash?: string;
-  message?: string;
-  payloadMatches?: boolean;
-};
-
-export type RunAnchorBatchOptions = {
-  maxOrders?: number;
-  batchId?: string;
-};
-
-export type RunAnchorBatchResult =
+export type RunAnchorWindowResult =
   | {
       status: 'noop';
-      anchoredCount: 0;
     }
   | {
       status: 'submitted';
       batchId: string;
-      anchoredCount: number;
-      merkleRoot: string;
-      payloadHash: string;
-      topicId: string;
-      sequenceNumber: string;
-      consensusTimestamp: string;
-      runningHash: string;
+      index: number;
+      fromMs: number;
+      toMs: number;
+      orderCount: number;
+      tapsRoot: string;
+      priceLogHash: string;
+      txHash: string;
     };
 
-export type AnchorBatchListResult = {
-  items: {
-    batchId: string;
-    status: SettlementAnchorBatchStatus;
-    orderCount: number;
-    merkleRoot: string;
-    topicId?: string;
-    sequenceNumber?: string;
-    consensusTimestamp?: string;
-    createdAt: string;
-    submittedAt?: string;
-  }[];
+export type ProofBatchSummary = {
+  index: number;
+  fromMs: number;
+  toMs: number;
+  tapsRoot: string;
+  priceLogHash: string;
+  txHash: string;
 };
 
-export type OrderAnchorProofResult = {
-  orderId: string;
-  batchId: string;
+export type ProofBatchTapItem = CanonicalSettledOrder & {
   leafHash: string;
-  merkleRoot: string;
   proof: MerkleProofStep[];
-  verified: boolean;
-  topicId?: string;
-  sequenceNumber?: string;
-  consensusTimestamp?: string;
 };
 
-export type BatchTopicVerificationResult = {
-  batchId: string;
-  topicId: string;
-  sequenceNumber: string;
-  found: boolean;
-  consensusTimestamp?: string;
-  runningHash?: string;
-  payloadMatches?: boolean;
-  message?: string;
+export type ProofBatchTapsResponse = {
+  index: number;
+  fromMs: number;
+  toMs: number;
+  tapsRoot: string;
+  priceLogHash: string;
+  txHash: string;
+  taps: ProofBatchTapItem[];
 };

@@ -1,60 +1,89 @@
-import { Body, Controller, Get, Param, Post, Query, UseGuards } from '@nestjs/common';
 import {
-  ApiBearerAuth,
-  ApiOperation,
-  ApiTags,
-} from '@nestjs/swagger';
-import { ApiKeyGuard } from '../auth/guards/api-key.guard';
+  BadRequestException,
+  Controller,
+  Get,
+  Param,
+  Query,
+  Res,
+  UseGuards,
+} from '@nestjs/common';
+import { ApiOperation, ApiTags } from '@nestjs/swagger';
+import { Response } from 'express';
+import { PublicRateLimitGuard } from '../feed/public-rate-limit.guard';
 import { ProofService } from './proof.service';
-import { GetAnchorBatchesDto } from './dto/get-anchor-batches.dto';
-import { RunAnchorBatchDto } from './dto/run-anchor-batch.dto';
 
-@ApiTags('Proof')
-@Controller('v1/proof')
+@ApiTags('Proofs')
+@Controller('proofs')
+@UseGuards(PublicRateLimitGuard)
 export class ProofController {
   constructor(private readonly proofService: ProofService) {}
 
-  @Post('run')
-  @ApiBearerAuth('bearer')
-  @UseGuards(ApiKeyGuard)
-  @ApiOperation({
-    summary: 'Run one anchor batch for settled orders',
-    description:
-      'Queries settled orders that are not anchored yet, builds a Merkle batch, and submits it through the configured proof publisher.',
-  })
-  async runAnchor(@Body() dto: RunAnchorBatchDto) {
-    return this.proofService.runOnce(dto);
+  @Get()
+  @ApiOperation({ summary: 'List submitted Base Sepolia proof batches' })
+  async getProofs(
+    @Query('limit') rawLimit?: string,
+    @Query('offset') rawOffset?: string,
+  ) {
+    const limit = this.parseLimit(rawLimit);
+    const offset = this.parseOffset(rawOffset);
+    return this.proofService.listSubmittedBatches(limit, offset);
   }
 
-  @Get('batches')
-  @ApiOperation({
-    summary: 'List anchor batches',
-  })
-  async getBatches(@Query() query: GetAnchorBatchesDto) {
-    return this.proofService.getBatches(query.limit, query.offset);
+  @Get(':index/price-log')
+  @ApiOperation({ summary: 'Download exact hashed NDJSON price log for batch' })
+  async getPriceLog(
+    @Param('index') rawIndex: string,
+    @Res() res: Response,
+  ): Promise<void> {
+    const index = this.parseIndex(rawIndex);
+    const buffer = await this.proofService.getBatchPriceLog(index);
+    res.setHeader('Content-Type', 'application/x-ndjson');
+    res.status(200).send(buffer);
   }
 
-  @Get('batches/:batchId')
-  @ApiOperation({
-    summary: 'Get anchor batch details',
-  })
-  async getBatch(@Param('batchId') batchId: string) {
-    return this.proofService.getBatch(batchId);
+  @Get(':index/taps')
+  @ApiOperation({ summary: 'Get settled taps and Merkle proofs for a batch' })
+  async getBatchTaps(@Param('index') rawIndex: string) {
+    const index = this.parseIndex(rawIndex);
+    return this.proofService.getBatchTaps(index);
   }
 
-  @Get('batches/:batchId/verify-topic')
-  @ApiOperation({
-    summary: 'Verify an anchor batch against the configured publisher',
-  })
-  async verifyBatchTopic(@Param('batchId') batchId: string) {
-    return this.proofService.verifyBatchTopic(batchId);
+  private parseIndex(raw: string): number {
+    if (!/^\d+$/.test(raw)) {
+      throw new BadRequestException('Invalid proof index');
+    }
+    const parsed = Number(raw);
+    if (!Number.isSafeInteger(parsed)) {
+      throw new BadRequestException('Invalid proof index');
+    }
+    return parsed;
   }
 
-  @Get('orders/:orderId/proof')
-  @ApiOperation({
-    summary: 'Get Merkle proof for an anchored order',
-  })
-  async getOrderProof(@Param('orderId') orderId: string) {
-    return this.proofService.getOrderProof(orderId);
+  private parseLimit(raw?: string): number {
+    if (raw === undefined || raw === '') {
+      return 20;
+    }
+    if (!/^\d+$/.test(raw)) {
+      throw new BadRequestException('Invalid limit');
+    }
+    const parsed = Number(raw);
+    if (!Number.isSafeInteger(parsed) || parsed < 1) {
+      throw new BadRequestException('Invalid limit');
+    }
+    return Math.min(50, parsed);
+  }
+
+  private parseOffset(raw?: string): number {
+    if (raw === undefined || raw === '') {
+      return 0;
+    }
+    if (!/^\d+$/.test(raw)) {
+      throw new BadRequestException('Invalid offset');
+    }
+    const parsed = Number(raw);
+    if (!Number.isSafeInteger(parsed)) {
+      throw new BadRequestException('Invalid offset');
+    }
+    return parsed;
   }
 }

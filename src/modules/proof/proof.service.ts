@@ -1,21 +1,23 @@
 import { Inject, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
+import { DataSource, Repository } from 'typeorm';
 import { Order } from '../order/entities/order.entity';
-import { MerkleTreeService } from './merkle-tree.service';
-import {
-  AnchorBatchListResult,
-  BatchTopicVerificationResult,
-  OrderAnchorProofResult,
-  RunAnchorBatchOptions,
-  RunAnchorBatchResult,
-  SettlementAnchorBatchDraft,
-  SettlementAnchorBatchStatus,
-  SettledOrderAnchorPayload,
-} from './types';
-import { Repository, DataSource, IsNull } from 'typeorm';
-import { SettlementAnchorBatch } from './entities/settlement-anchor-batch.entity';
 import { OrderStatus } from '../order/types';
-import { HCS_PUBLISHER, HcsPublisher } from './publishers/hcs-publisher';
+import { SettlementAnchorBatch } from './entities/settlement-anchor-batch.entity';
+import { MerkleTreeService } from './merkle-tree.service';
+import { PriceLogService } from './price-log.service';
+import {
+  PROOF_PUBLISHER,
+  ProofPublisher,
+} from './publishers/base-proof.publisher';
+import {
+  ProofBatchSummary,
+  ProofBatchTapsResponse,
+  RunAnchorWindowResult,
+  SettlementAnchorBatchStatus,
+} from './types';
+
+export const PROOF_WINDOW_MS = 300_000;
 
 @Injectable()
 export class ProofService {
@@ -28,282 +30,275 @@ export class ProofService {
     private readonly batchRepository: Repository<SettlementAnchorBatch>,
     private readonly dataSource: DataSource,
     private readonly merkleTreeService: MerkleTreeService,
-    @Inject(HCS_PUBLISHER)
-    private readonly publisher: HcsPublisher,
+    private readonly priceLogService: PriceLogService,
+    @Inject(PROOF_PUBLISHER)
+    private readonly publisher: ProofPublisher,
   ) {}
 
-  prepareBatchDraft(
-    orders: Order[],
-    batchId: string = this.generateBatchId(),
-  ): SettlementAnchorBatchDraft {
-    const preparedBatch = this.merkleTreeService.prepareSettledOrders(orders);
+  async runNextWindow(
+    nowMs: number = Date.now(),
+  ): Promise<RunAnchorWindowResult> {
+    const window = await this.resolveNextWindow(nowMs);
+    if (!window) {
+      return { status: 'noop' };
+    }
 
-    return {
+    const { fromMs, toMs, existingBatch } = window;
+    const orders = await this.loadWindowOrders(fromMs, toMs);
+    const prepared = this.merkleTreeService.prepareSettledOrders(orders);
+    const { hash: priceLogHash } = await this.priceLogService.buildWithHash(
+      fromMs,
+      toMs,
+    );
+    const batchId = existingBatch?.batchId ?? `proof_${fromMs}_${toMs}`;
+    const nextAttempt = (existingBatch?.attempts ?? 0) + 1;
+
+    await this.markBatchPending(
+      existingBatch,
       batchId,
-      orderCount: preparedBatch.orderCount,
-      merkleRoot: preparedBatch.merkleRoot,
-      windowStart: preparedBatch.windowStart,
-      windowEnd: preparedBatch.windowEnd,
-      leaves: preparedBatch.leaves,
-    };
-  }
-
-  generateBatchId(now: Date = new Date()): string {
-    const isoCompact = now.toISOString().replace(/[-:.TZ]/g, '').slice(0, 14);
-    const suffix = now.getMilliseconds().toString().padStart(3, '0');
-    return `anchor_${isoCompact}_${suffix}`;
-  }
-
-  async countPendingSettledOrders(): Promise<number> {
-    return this.orderRepository.count({
-      where: {
-        status: OrderStatus.SETTLED,
-        anchorBatchId: IsNull(),
-      },
-    });
-  }
-
-  async getBatches(limit: number = 20, offset: number = 0): Promise<AnchorBatchListResult> {
-    const batches = await this.batchRepository.find({
-      order: {
-        createdAt: 'DESC',
-      },
-      take: limit,
-      skip: offset,
-    });
-
-    return {
-      items: batches.map((batch) => ({
-        batchId: batch.batchId,
-        status: batch.status,
-        orderCount: batch.orderCount,
-        merkleRoot: batch.merkleRoot,
-        topicId: batch.topicId,
-        sequenceNumber: batch.sequenceNumber,
-        consensusTimestamp: batch.consensusTimestamp,
-        createdAt: batch.createdAt.toISOString(),
-        submittedAt: batch.submittedAt?.toISOString(),
-      })),
-    };
-  }
-
-  async getBatch(batchId: string): Promise<SettlementAnchorBatch> {
-    const batch = await this.batchRepository.findOneBy({ batchId });
-    if (!batch) {
-      throw new NotFoundException(`Anchor batch ${batchId} not found`);
-    }
-    return batch;
-  }
-
-  async getOrderProof(orderId: string): Promise<OrderAnchorProofResult> {
-    const order = await this.orderRepository.findOneBy({ orderId });
-
-    if (!order) {
-      throw new NotFoundException(`Order ${orderId} not found`);
-    }
-
-    if (!order.anchorBatchId) {
-      throw new NotFoundException(`Order ${orderId} has not been anchored`);
-    }
-
-    const batch = await this.getBatch(order.anchorBatchId);
-    const ordersInBatch = await this.orderRepository.find({
-      where: {
-        anchorBatchId: order.anchorBatchId,
-      },
-      order: {
-        settledAt: 'ASC',
-        orderId: 'ASC',
-      },
-    });
-
-    const preparedBatch = this.merkleTreeService.prepareSettledOrders(ordersInBatch);
-    const recomputedLeafHashes = new Map(
-      preparedBatch.leaves.map((leaf) => [leaf.order.orderId, leaf.leafHash]),
-    );
-    const leafIndex = ordersInBatch.findIndex(
-      (batchOrder) => batchOrder.orderId === orderId,
-    );
-
-    if (leafIndex === -1) {
-      throw new NotFoundException(
-        `Order ${orderId} was not found inside anchor batch ${order.anchorBatchId}`,
-      );
-    }
-
-    const leafHashes = ordersInBatch.map(
-      (batchOrder) =>
-        batchOrder.anchorLeafHash ??
-        recomputedLeafHashes.get(batchOrder.orderId) ??
-        this.merkleTreeService.hashSettledOrder(batchOrder),
-    );
-    const leafHash = leafHashes[leafIndex];
-    const proof = this.merkleTreeService.buildMerkleProof(
-      leafHashes,
-      leafIndex,
-    );
-    const verified = this.merkleTreeService.verifyMerkleProof(
-      leafHash,
-      proof,
-      batch.merkleRoot,
-    );
-
-    return {
-      orderId,
-      batchId: batch.batchId,
-      leafHash,
-      merkleRoot: batch.merkleRoot,
-      proof,
-      verified,
-      topicId: batch.topicId,
-      sequenceNumber: batch.sequenceNumber,
-      consensusTimestamp: batch.consensusTimestamp,
-    };
-  }
-
-  async verifyBatchTopic(
-    batchId: string,
-  ): Promise<BatchTopicVerificationResult> {
-    const batch = await this.getBatch(batchId);
-
-    if (!batch.topicId || !batch.sequenceNumber) {
-      throw new NotFoundException(
-        `Anchor batch ${batchId} does not have topic metadata yet`,
-      );
-    }
-
-    const verification = await this.publisher.verifyAnchorMessage({
-      topicId: batch.topicId,
-      sequenceNumber: batch.sequenceNumber,
-      expectedPayload: batch.submittedPayload,
-    });
-
-    return {
-      batchId: batch.batchId,
-      topicId: batch.topicId,
-      sequenceNumber: batch.sequenceNumber,
-      found: verification.found,
-      consensusTimestamp: verification.consensusTimestamp,
-      runningHash: verification.runningHash,
-      payloadMatches: verification.payloadMatches,
-      message: verification.message,
-    };
-  }
-
-  async runOnce(
-    options: RunAnchorBatchOptions = {},
-  ): Promise<RunAnchorBatchResult> {
-    const orders = await this.orderRepository.find({
-      where: {
-        status: OrderStatus.SETTLED,
-        anchorBatchId: IsNull(),
-      },
-      order: {
-        settledAt: 'ASC',
-        orderId: 'ASC',
-      },
-      take: options.maxOrders,
-    });
-
-    if (orders.length === 0) {
-      this.logger.log('No settled orders are pending anchoring');
-      return {
-        status: 'noop',
-        anchoredCount: 0,
-      };
-    }
-
-    const batchDraft = this.prepareBatchDraft(orders, options.batchId);
-    const payload = this.buildAnchorPayload(batchDraft);
-    const submittedPayload = JSON.stringify(payload);
-    const payloadHash = this.merkleTreeService.sha256Hex(submittedPayload);
-
-    await this.batchRepository.save(
-      this.batchRepository.create({
-        batchId: batchDraft.batchId,
-        status: SettlementAnchorBatchStatus.PENDING,
-        orderCount: batchDraft.orderCount,
-        merkleRoot: batchDraft.merkleRoot,
-        payloadHash,
-        submittedPayload,
-      }),
+      fromMs,
+      toMs,
+      prepared.orderCount,
+      prepared.merkleRoot,
+      priceLogHash,
     );
 
     try {
-      const submission = await this.publisher.submitAnchorMessage({
-        batchId: batchDraft.batchId,
-        payload: submittedPayload,
-      });
-
-      const anchoredAtMs = Date.now();
-
-      await this.dataSource.transaction(async (manager) => {
-        await manager.getRepository(SettlementAnchorBatch).update(
-          { batchId: batchDraft.batchId },
-          {
-            status: SettlementAnchorBatchStatus.SUBMITTED,
-            topicId: submission.topicId,
-            sequenceNumber: submission.sequenceNumber,
-            consensusTimestamp: submission.consensusTimestamp,
-            runningHash: submission.runningHash,
-            submittedAt: new Date(anchoredAtMs),
-          },
-        );
-
-        const ordersToUpdate = batchDraft.leaves.map(({ order, leafHash }) => {
-          order.anchorBatchId = batchDraft.batchId;
-          order.anchorLeafHash = leafHash;
-          order.anchoredAt = anchoredAtMs;
-          return order;
-        });
-
-        await manager.getRepository(Order).save(ordersToUpdate);
-      });
+      const posted = await this.publisher.post(
+        prepared.merkleRoot,
+        priceLogHash,
+        fromMs,
+        toMs,
+      );
+      await this.markBatchSubmitted(
+        batchId,
+        posted.index,
+        posted.txHash,
+        nextAttempt,
+        prepared.leaves,
+      );
 
       this.logger.log(
-        `Anchored ${batchDraft.orderCount} settled orders in batch ${batchDraft.batchId}`,
+        `Anchored proof index=${posted.index} range=[${fromMs},${toMs}) orders=${prepared.orderCount}`,
       );
 
       return {
         status: 'submitted',
-        batchId: batchDraft.batchId,
-        anchoredCount: batchDraft.orderCount,
-        merkleRoot: batchDraft.merkleRoot,
-        payloadHash,
-        topicId: submission.topicId,
-        sequenceNumber: submission.sequenceNumber,
-        consensusTimestamp: submission.consensusTimestamp,
-        runningHash: submission.runningHash,
+        batchId,
+        index: posted.index,
+        fromMs,
+        toMs,
+        orderCount: prepared.orderCount,
+        tapsRoot: prepared.merkleRoot,
+        priceLogHash,
+        txHash: posted.txHash,
       };
     } catch (error) {
-      const errorMessage =
-        error instanceof Error ? error.message : 'Unknown anchor failure';
-
+      const lastError =
+        error instanceof Error ? error.message : 'Unknown proof anchor failure';
       await this.batchRepository.update(
-        { batchId: batchDraft.batchId },
+        { batchId },
         {
           status: SettlementAnchorBatchStatus.FAILED,
-          errorMessage,
+          attempts: nextAttempt,
+          lastError,
         },
       );
-
       throw error;
     }
   }
 
-  private buildAnchorPayload(
-    batchDraft: SettlementAnchorBatchDraft,
-  ): SettledOrderAnchorPayload {
+  async listSubmittedBatches(
+    limit: number = 20,
+    offset: number = 0,
+  ): Promise<ProofBatchSummary[]> {
+    const batches = await this.batchRepository.find({
+      where: { status: SettlementAnchorBatchStatus.SUBMITTED },
+      order: { index: 'DESC' },
+      take: Math.min(50, Math.max(1, limit)),
+      skip: Math.max(0, offset),
+    });
+
+    return batches.map((batch) => ({
+      index: batch.index!,
+      fromMs: Number(batch.fromMs),
+      toMs: Number(batch.toMs),
+      tapsRoot: batch.tapsRoot,
+      priceLogHash: batch.priceLogHash,
+      txHash: batch.txHash!,
+    }));
+  }
+
+  async getBatchPriceLog(index: number): Promise<Buffer> {
+    const batch = await this.findSubmittedBatchByIndex(index);
+    return this.priceLogService.build(Number(batch.fromMs), Number(batch.toMs));
+  }
+
+  async getBatchTaps(index: number): Promise<ProofBatchTapsResponse> {
+    const batch = await this.findSubmittedBatchByIndex(index);
+    const orders = await this.orderRepository.find({
+      where: { anchorBatchId: batch.batchId },
+      order: { settledAt: 'ASC', orderId: 'ASC' },
+    });
+
+    const prepared = this.merkleTreeService.prepareSettledOrders(orders);
+    const leafHashes = prepared.leaves.map((leaf) => leaf.leafHash);
+
     return {
-      schema: 'tap.settledOrderAnchor.v1',
-      batchId: batchDraft.batchId,
-      recordType: 'settled_orders',
-      hashAlg: 'sha256',
-      merkleRoot: batchDraft.merkleRoot,
-      orderCount: batchDraft.orderCount,
-      windowStart: batchDraft.windowStart,
-      windowEnd: batchDraft.windowEnd,
-      createdAt: new Date().toISOString(),
+      index: batch.index!,
+      fromMs: Number(batch.fromMs),
+      toMs: Number(batch.toMs),
+      tapsRoot: batch.tapsRoot,
+      priceLogHash: batch.priceLogHash,
+      txHash: batch.txHash!,
+      taps: prepared.leaves.map((leaf, leafIndex) => ({
+        ...leaf.canonical,
+        leafHash: leaf.leafHash,
+        proof: this.merkleTreeService.buildMerkleProof(leafHashes, leafIndex),
+      })),
     };
+  }
+
+  private async resolveNextWindow(nowMs: number): Promise<{
+    fromMs: number;
+    toMs: number;
+    existingBatch: SettlementAnchorBatch | null;
+  } | null> {
+    const unfinished = await this.batchRepository.findOne({
+      where: [
+        { status: SettlementAnchorBatchStatus.FAILED },
+        { status: SettlementAnchorBatchStatus.PENDING },
+      ],
+      order: { fromMs: 'ASC' },
+    });
+
+    if (unfinished) {
+      return {
+        fromMs: Number(unfinished.fromMs),
+        toMs: Number(unfinished.toMs),
+        existingBatch: unfinished,
+      };
+    }
+
+    const boundary = Math.floor(nowMs / PROOF_WINDOW_MS) * PROOF_WINDOW_MS;
+    const latestSubmitted = await this.batchRepository.findOne({
+      where: { status: SettlementAnchorBatchStatus.SUBMITTED },
+      order: { toMs: 'DESC' },
+    });
+
+    const fromMs = latestSubmitted
+      ? Number(latestSubmitted.toMs)
+      : boundary - PROOF_WINDOW_MS;
+    if (fromMs >= boundary) {
+      return null;
+    }
+
+    return { fromMs, toMs: boundary, existingBatch: null };
+  }
+
+  private async loadWindowOrders(
+    fromMs: number,
+    toMs: number,
+  ): Promise<Order[]> {
+    return this.orderRepository
+      .createQueryBuilder('order')
+      .where('order.status IN (:...statuses)', {
+        statuses: [OrderStatus.SETTLED, OrderStatus.VOIDED],
+      })
+      .andWhere('order.settledAt >= :fromMs', { fromMs })
+      .andWhere('order.settledAt < :toMs', { toMs })
+      .orderBy('order.settledAt', 'ASC')
+      .addOrderBy('order.orderId', 'ASC')
+      .getMany();
+  }
+
+  private async markBatchPending(
+    existingBatch: SettlementAnchorBatch | null,
+    batchId: string,
+    fromMs: number,
+    toMs: number,
+    orderCount: number,
+    tapsRoot: string,
+    priceLogHash: string,
+  ): Promise<void> {
+    if (existingBatch) {
+      await this.batchRepository.update(
+        { batchId },
+        {
+          status: SettlementAnchorBatchStatus.PENDING,
+          orderCount,
+          tapsRoot,
+          priceLogHash,
+        },
+      );
+      return;
+    }
+
+    await this.batchRepository.save(
+      this.batchRepository.create({
+        batchId,
+        index: null,
+        fromMs,
+        toMs,
+        status: SettlementAnchorBatchStatus.PENDING,
+        orderCount,
+        tapsRoot,
+        priceLogHash,
+        txHash: null,
+        attempts: 0,
+        lastError: null,
+        submittedAt: null,
+      }),
+    );
+  }
+
+  private async markBatchSubmitted(
+    batchId: string,
+    index: number,
+    txHash: string,
+    attempts: number,
+    leaves: ReturnType<MerkleTreeService['prepareSettledOrders']>['leaves'],
+  ): Promise<void> {
+    const anchoredAtMs = Date.now();
+    await this.dataSource.transaction(async (manager) => {
+      await manager.getRepository(SettlementAnchorBatch).update(
+        { batchId },
+        {
+          status: SettlementAnchorBatchStatus.SUBMITTED,
+          index,
+          txHash,
+          attempts,
+          lastError: null,
+          submittedAt: new Date(anchoredAtMs),
+        },
+      );
+
+      if (leaves.length === 0) {
+        return;
+      }
+
+      const ordersToUpdate = leaves.map(({ order, leafHash }) => {
+        order.anchorBatchId = batchId;
+        order.anchorLeafHash = leafHash;
+        order.anchoredAt = anchoredAtMs;
+        return order;
+      });
+      await manager.getRepository(Order).save(ordersToUpdate);
+    });
+  }
+
+  private async findSubmittedBatchByIndex(
+    index: number,
+  ): Promise<SettlementAnchorBatch> {
+    const batch = await this.batchRepository.findOne({
+      where: {
+        index,
+        status: SettlementAnchorBatchStatus.SUBMITTED,
+      },
+    });
+    if (!batch) {
+      throw new NotFoundException(`Proof batch ${index} not found`);
+    }
+    return batch;
   }
 }

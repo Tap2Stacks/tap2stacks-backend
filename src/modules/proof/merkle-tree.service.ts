@@ -7,6 +7,7 @@ import {
   MerkleProofStep,
   PreparedSettledOrderBatch,
   PreparedSettledOrderLeaf,
+  SettledTapStatus,
 } from './types';
 
 @Injectable()
@@ -16,28 +17,41 @@ export class MerkleTreeService {
   }
 
   canonicalizeSettledOrder(order: Order): CanonicalSettledOrder {
-    if (order.status !== OrderStatus.SETTLED) {
-      throw new Error(`Order ${order.orderId} is not settled`);
-    }
-
-    if (order.settledAt == null || order.settledWin == null) {
-      throw new Error(`Order ${order.orderId} is missing settlement data`);
-    }
+    const status = this.resolveTapStatus(order);
 
     return {
-      schema: 'tap.settledOrder.v1',
+      schema: 'tap2stacks.settledOrder.v1',
       orderId: order.orderId,
       userId: order.userId,
       marketId: order.marketId,
+      ticker: order.ticker || order.marketId,
+      status,
       amount: order.amount,
       rewardRate: order.rewardRate,
-      settledAt: order.settledAt,
-      settledWin: order.settledWin,
+      settledAt: order.settledAt!,
+      settledWin:
+        order.status === OrderStatus.VOIDED ? null : Boolean(order.settledWin),
       cellTimeStart: order.cellTimeStart,
       cellTimeEnd: order.cellTimeEnd,
       lowerPrice: order.lowerPrice,
       upperPrice: order.upperPrice,
     };
+  }
+
+  private resolveTapStatus(order: Order): SettledTapStatus {
+    if (order.status === OrderStatus.VOIDED) {
+      if (order.settledAt == null) {
+        throw new Error(`Order ${order.orderId} is missing settlement data`);
+      }
+      return 'VOIDED';
+    }
+    if (order.status !== OrderStatus.SETTLED) {
+      throw new Error(`Order ${order.orderId} is not settled`);
+    }
+    if (order.settledAt == null || order.settledWin == null) {
+      throw new Error(`Order ${order.orderId} is missing settlement data`);
+    }
+    return order.settledWin ? 'WON' : 'LOST';
   }
 
   serializeCanonicalSettledOrder(order: CanonicalSettledOrder): string {
