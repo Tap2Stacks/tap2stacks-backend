@@ -2,7 +2,7 @@ import { Injectable } from '@nestjs/common';
 import { WebSocketGateway, WebSocketServer } from '@nestjs/websockets';
 import { Server } from 'socket.io';
 import { LatestPriceState } from 'src/libs/price-tick';
-import { BalanceUpdateMessage, DepositSuccessMessage, EventName, EventPublisher, getGridRoom, getUserRoom, OrderUpdateMessage, WithdrawCancelledMessage, WithdrawQueuedMessage, WithdrawSuccessMessage } from './types';
+import { BalanceUpdateMessage, DepositSuccessMessage, EventName, EventPublisher, FeedHealthMessage, getGridRoom, getUserRoom, GridUpdateMessage, OrderUpdateMessage, PriceNowMessage, WithdrawCancelledMessage, WithdrawQueuedMessage, WithdrawSuccessMessage } from './types';
 import { Cell } from 'src/libs/cell';
 
 @Injectable()
@@ -15,9 +15,9 @@ export class SocketService implements EventPublisher {
     @WebSocketServer() server: Server;
     constructor() { }
 
-    async emitGridUpdate(msg: Cell[]) {
+    async emitGridUpdate(msg: Cell[] | GridUpdateMessage) {
         this.server
-            .emit(EventName.GridUpdate, msg);
+            ?.emit(EventName.GridUpdate, msg);
     }
 
     async emitBalanceUpdate(msg: BalanceUpdateMessage) {
@@ -59,6 +59,16 @@ export class SocketService implements EventPublisher {
     async emitNewPrice(price: LatestPriceState) {
         const msg = { price: price.price, ts: price.ts }
         this.server
-            .emit(EventName.PriceNow, msg);
+            ?.emit(EventName.PriceNow, msg);
+    }
+
+    async emitPriceNow(msg: PriceNowMessage) {
+        this.server
+            ?.emit(EventName.PriceNow, msg);
+    }
+
+    async emitFeedHealth(msg: FeedHealthMessage) {
+        this.server
+            ?.emit(EventName.FeedHealth, msg);
     }
 }

@@ -1,4 +1,4 @@
-import { Cell } from "src/libs/cell";
+import { Cell, RemoteCell } from "src/libs/cell";
 import { OrderStatus } from "../order/types";
 import { LatestPriceState } from "src/libs/price-tick";
 
@@ -36,6 +36,7 @@ export enum EventName {
     WithdrawCancelled = 'withdraw_cancelled',
     WithdrawSuccess = 'withdraw_success',
     PriceNow = 'price_now',
+    FeedHealth = 'feed_health',
 }
 
 export interface BalanceUpdateMessage {
@@ -109,6 +110,24 @@ export function getGridRoom(): string {
     return `${SocketChannel.GRID}`;
 }
 
+export interface GridUpdateMessage {
+    ticker: string;
+    gridTs: number;
+    priceStep: string;
+    cells: RemoteCell[];
+}
+
+export interface PriceNowMessage {
+    ticker: string;
+    price: string;
+    ts: number;
+}
+
+export interface FeedHealthMessage {
+    ticker: string;
+    stale: boolean;
+}
+
 export interface EventPublisher {
     emitDepositSuccess(msg: DepositSuccessMessage): Promise<void>;
     emitWithdrawQueued(msg: WithdrawQueuedMessage): Promise<void>;
@@ -117,7 +136,9 @@ export interface EventPublisher {
     emitOrderUpdate(msg: OrderUpdateMessage): Promise<void>;
     emitBalanceUpdate(msg: BalanceUpdateMessage): Promise<void>;
     emitNewPrice(price: LatestPriceState): Promise<void>;
-    emitGridUpdate(grid: Cell[]): Promise<void>;
+    emitGridUpdate(grid: Cell[] | GridUpdateMessage): Promise<void>;
+    emitPriceNow?(msg: PriceNowMessage): Promise<void>;
+    emitFeedHealth?(msg: FeedHealthMessage): Promise<void>;
 }
 
 export const EVENT_PUBLISHER = Symbol('EVENT_PUBLISHER');
