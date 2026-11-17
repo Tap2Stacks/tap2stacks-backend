@@ -41,6 +41,7 @@ describe('OrderService settlement & void', () => {
   let events: {
     emitOrderUpdate: ReturnType<typeof vi.fn>;
     emitBalanceUpdate: ReturnType<typeof vi.fn>;
+    emitTradeFeed: ReturnType<typeof vi.fn>;
   };
   let engineClient: {
     sendExposure: ReturnType<typeof vi.fn>;
@@ -116,6 +117,7 @@ describe('OrderService settlement & void', () => {
     events = {
       emitOrderUpdate: vi.fn().mockResolvedValue(undefined),
       emitBalanceUpdate: vi.fn().mockResolvedValue(undefined),
+      emitTradeFeed: vi.fn().mockResolvedValue(undefined),
     };
     engineClient = {
       sendExposure: vi.fn(),
@@ -130,6 +132,15 @@ describe('OrderService settlement & void', () => {
       engineClient as any,
       SIGNER_KEY,
     );
+  });
+
+  it('emits one public entry for a stack after both orders settle', async () => {
+    await placeViaService({}, '5');
+    await placeViaService({}, '10');
+    await service.handleSample({ ticker: 'NVDA', tsMs: baseWindowStart + 1000, price: 157.52 });
+    expect(accountService.settleBet).toHaveBeenCalledTimes(2);
+    expect(events.emitTradeFeed).toHaveBeenCalledTimes(1);
+    expect(events.emitTradeFeed.mock.calls[0][0]).toMatchObject({ stake: '15', result: 'win' });
   });
 
   it('wins on the first sample in the window inside [lower, upper] cents', async () => {

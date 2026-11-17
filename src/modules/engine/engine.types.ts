@@ -27,7 +27,8 @@ export interface EngineHealth {
     type?: 'health';
     ticker: string;
     serverTsMs: number;
-    lastSampleAgeMs: number;
+    lastSampleAgeMs: number | null;
+    prevDayPx?: number | null;
     stale: boolean;
 }
 

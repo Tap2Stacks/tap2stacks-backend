@@ -155,6 +155,7 @@ describe('EngineClientService', () => {
     expect(events.emitFeedHealth).toHaveBeenLastCalledWith({
       ticker: 'NVDA',
       stale: false,
+      prevDayPx: null,
     });
 
     // Disconnect engine
@@ -164,6 +165,7 @@ describe('EngineClientService', () => {
     expect(events.emitFeedHealth).toHaveBeenLastCalledWith({
       ticker: 'NVDA',
       stale: true,
+      prevDayPx: null,
     });
     const whileDownIntervals = feedHealthStore.staleIntervals('NVDA');
     expect(whileDownIntervals.length).toBeGreaterThanOrEqual(1);
@@ -338,9 +340,9 @@ describe('EngineClientService', () => {
 
     expect(events.emitFeedHealth).toHaveBeenCalledTimes(3);
     expect(events.emitFeedHealth.mock.calls.map((c) => c[0])).toEqual([
-      { ticker: 'TSLA', stale: false },
-      { ticker: 'TSLA', stale: true },
-      { ticker: 'TSLA', stale: false },
+      { ticker: 'TSLA', stale: false, prevDayPx: null },
+      { ticker: 'TSLA', stale: true, prevDayPx: null },
+      { ticker: 'TSLA', stale: false, prevDayPx: null },
     ]);
     expect(feedHealthStore.isStale('TSLA')).toBe(false);
     expect(feedHealthStore.staleIntervals('TSLA')).toEqual([[3000, 7000]]);
