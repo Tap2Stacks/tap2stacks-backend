@@ -13,6 +13,9 @@ export class Order {
     @Column()
     marketId: string;
 
+    @Column({ type: 'varchar', default: '' })
+    ticker: string;
+
     @Column({
         type: 'bigint',
         transformer: BigIntMsTransformer,

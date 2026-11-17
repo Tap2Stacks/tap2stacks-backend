@@ -85,6 +85,8 @@ describe('config', () => {
     expect(configModule.env.flag.runSettlement).toBe(true);
     expect(configModule.env.flag.proofAnchorEnabled).toBe(true);
     expect(configModule.env.flag.geofenceEnabled).toBe(false);
+    expect(configModule.env.flag.devFaucetEnabled).toBe(false);
+    expect(value.DEV_FAUCET_ENABLED).toBe(false);
     expect(configModule.env.botWallets).toEqual([
       '0x1111111111111111111111111111111111111111',
       '0x2222222222222222222222222222222222222222',

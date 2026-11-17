@@ -1,5 +1,5 @@
-import { Body, Controller, Post, UseGuards, Request, Get, Query } from '@nestjs/common';
-import { OrderService } from './order.service';
+import { BadRequestException, Body, Controller, Post, UseGuards, Get, Query } from '@nestjs/common';
+import { OrderService, OrderRejectedError } from './order.service';
 import { PlaceOrderDto } from './dto/place-order.dto';
 import { GetOrdersDto } from './dto/get-orders.dto';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
@@ -15,7 +15,18 @@ export class OrderController {
     @Post()
     @UseGuards(JwtAuthGuard)
     async placeOrder(@Body() dto: PlaceOrderDto, @CurrentUser() user: { address: string }) {
-        return this.orderService.placeOrder(user.address, dto);
+        try {
+            return await this.orderService.placeOrder(user.address, dto);
+        } catch (err) {
+            if (err instanceof OrderRejectedError) {
+                throw new BadRequestException({
+                    statusCode: 400,
+                    message: err.message,
+                    reason: err.reason,
+                });
+            }
+            throw err;
+        }
     }
 
     @Get('user')
@@ -24,7 +35,13 @@ export class OrderController {
         @CurrentUser() user: { address: string },
         @Query() query: GetOrdersDto,
     ) {
-        return this.orderService.getUserOrders(user.address, query.status, query.limit, query.offset);
+        return this.orderService.getUserOrders(
+            user.address,
+            query.status,
+            query.limit,
+            query.offset,
+            query.ticker,
+        );
     }
 }
 

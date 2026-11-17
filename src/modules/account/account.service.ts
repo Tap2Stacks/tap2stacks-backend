@@ -180,7 +180,9 @@ export class AccountService {
                 // Design says: "free_balance += bet_amount * reward_rate".
                 // Let's assume reward_rate is the TOTAL MULTIPLIER (e.g. 2.0).
 
-                const payout = betAmount.times(rewardRate);
+                const payout = betAmount
+                    .times(rewardRate)
+                    .decimalPlaces(6, BigNumber.ROUND_DOWN);
 
                 delta = {
                     locked: betAmount.negated().toString(),
@@ -200,8 +202,35 @@ export class AccountService {
         });
     }
 
+    async voidBet(userId: string, amount: string, marketId: string, cellId: string): Promise<void> {
+        await this.shardQueue.enqueue(userId, async () => {
+            const ref = `${marketId}:${cellId}`;
+            const balance = await this.ensureBalanceLoaded(userId);
+            const betAmount = new BigNumber(amount);
 
-    private async processEvent(userId: string, type: EconomicEventType, ref: string, delta: BalanceDelta) {
+            if (betAmount.gt(balance.locked)) {
+                throw new BadRequestException('Insufficient locked balance');
+            }
+
+            const delta: BalanceDelta = {
+                locked: betAmount.negated().toString(),
+                free: betAmount.toString(),
+                freeTap: '0',
+            };
+
+            const economicKey = `${userId}:void:${cellId}`;
+            await this.processEvent(userId, EconomicEventType.REFUND, ref, delta, economicKey);
+        });
+    }
+
+
+    private async processEvent(
+        userId: string,
+        type: EconomicEventType,
+        ref: string,
+        delta: BalanceDelta,
+        economicKeyOverride?: string,
+    ) {
         if (!validateBalanceDelta(delta)) {
             throw new BadRequestException('Invalid balance delta');
         }
@@ -216,7 +245,7 @@ export class AccountService {
 
         // 2. Persist Fact (Ledger)
 
-        const economicKey = `${userId}:${type.valueOf()}:${ref}`;
+        const economicKey = economicKeyOverride ?? `${userId}:${type.valueOf()}:${ref}`;
 
         try {
             const entry = await this.ledger.append(userId, type, economicKey, delta);

@@ -1,4 +1,4 @@
-import { IsEnum, IsNumber, IsOptional, Min } from 'class-validator';
+import { IsEnum, IsNumber, IsOptional, IsString, Min } from 'class-validator';
 import { Type } from 'class-transformer';
 import { ApiPropertyOptional } from '@nestjs/swagger';
 import { OrderStatus } from '../types';
@@ -8,6 +8,11 @@ export class GetOrdersDto {
     @IsOptional()
     @IsEnum(OrderStatus)
     status?: OrderStatus;
+
+    @ApiPropertyOptional({ description: 'Filter by ticker (e.g. NVDA, TSLA)' })
+    @IsOptional()
+    @IsString()
+    ticker?: string;
 
     @ApiPropertyOptional({ type: Number, default: 20, description: 'Number of orders to return (min: 1)' })
     @IsOptional()

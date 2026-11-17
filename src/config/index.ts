@@ -32,6 +32,7 @@ export const envVarsSchema = Joi.object()
     RUN_SETTLEMENT: Joi.boolean().default(true),
     PROOF_ANCHOR_ENABLED: Joi.boolean().default(true),
     GEOFENCE_ENABLED: Joi.boolean().default(false),
+    DEV_FAUCET_ENABLED: Joi.boolean().default(false),
 
     JWT_SECRET: Joi.string().required(),
     ADMIN_API_KEY: Joi.string().min(32).required(),
@@ -89,6 +90,9 @@ export function parseEnv(rawEnv: NodeJS.ProcessEnv = process.env) {
       geofenceEnabled:
         envVars.GEOFENCE_ENABLED === true ||
         envVars.GEOFENCE_ENABLED === 'true',
+      devFaucetEnabled:
+        envVars.DEV_FAUCET_ENABLED === true ||
+        envVars.DEV_FAUCET_ENABLED === 'true',
     },
     secret: {
       jwtSecret: envVars.JWT_SECRET as string,

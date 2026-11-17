@@ -1,5 +1,5 @@
 import { Cell, RemoteCell } from "src/libs/cell";
-import { OrderStatus } from "../order/types";
+import { OrderStatus, RejectReason } from "../order/types";
 import { LatestPriceState } from "src/libs/price-tick";
 
 export enum SocketEvents {
@@ -51,10 +51,12 @@ export interface OrderUpdateMessage {
     orderId: string;
     userId: string;
     marketId: string;
+    ticker?: string;
     amount: string;
     cell: any;
 
     status: OrderStatus;
+    reason?: RejectReason;
     settledTimestamp?: number;
     settledWin?: boolean;
 }

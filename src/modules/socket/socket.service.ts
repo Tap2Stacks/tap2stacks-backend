@@ -22,13 +22,13 @@ export class SocketService implements EventPublisher {
 
     async emitBalanceUpdate(msg: BalanceUpdateMessage) {
         this.server
-            .to(getUserRoom(msg.userId))
+            ?.to(getUserRoom(msg.userId))
             .emit(EventName.BalanceUpdate, msg);
     }
 
     async emitOrderUpdate(msg: OrderUpdateMessage) {
         this.server
-            .to(getUserRoom(msg.userId))
+            ?.to(getUserRoom(msg.userId))
             .emit(EventName.OrderUpdate, msg);
     }
 

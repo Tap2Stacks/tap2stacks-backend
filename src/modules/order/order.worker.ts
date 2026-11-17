@@ -1,40 +1,51 @@
-import { Injectable, OnModuleDestroy, OnModuleInit } from "@nestjs/common";
-import { Logger } from "@nestjs/common";
-import { OrderService } from "./order.service";
-import { OrderPriceTickChannel } from "./price-tick.channel";
-import { env } from "src/config";
+import {
+    Injectable,
+    Logger,
+    OnModuleDestroy,
+    OnModuleInit,
+} from '@nestjs/common';
+import { Subscription } from 'rxjs';
+import { env } from 'src/config';
+import { EngineClientService } from '../engine/engine-client.service';
+import { OrderService } from './order.service';
+
+const STALE_SWEEP_INTERVAL_MS = 1000;
 
 @Injectable()
 export class OrderWorker implements OnModuleInit, OnModuleDestroy {
     private readonly logger = new Logger(OrderWorker.name);
-    private running = true;
+    private sampleSub: Subscription | null = null;
+    private sweepTimer: NodeJS.Timeout | null = null;
 
     constructor(
-        private readonly priceTickChannel: OrderPriceTickChannel,
+        private readonly engineClient: EngineClientService,
         private readonly orderService: OrderService,
-    ) { }
+    ) {}
 
     onModuleInit() {
         if (env.flag.runSettlement) {
-            void this.run();
+            this.logger.log('OrderWorker started');
+            this.sampleSub = this.engineClient.sample$.subscribe((sample) => {
+                void this.orderService.handleSample(sample).catch((err) => {
+                    this.logger.error('Sample settlement error', err);
+                });
+            });
+            this.sweepTimer = setInterval(() => {
+                void this.orderService.voidStaleOrders().catch((err) => {
+                    this.logger.error('Stale order sweep error', err);
+                });
+            }, STALE_SWEEP_INTERVAL_MS);
         }
     }
 
     onModuleDestroy() {
-        this.running = false;
-        this.priceTickChannel.close();
-    }
-
-    private async run() {
-        this.logger.log('OrderWorker started');
-
-        while (this.running) {
-            try {
-                const priceTick = await this.priceTickChannel.receive();
-                await this.orderService.handleSinglePriceTick(priceTick);
-            } catch (err) {
-                this.logger.error('Worker loop error', err);
-            }
+        if (this.sampleSub) {
+            this.sampleSub.unsubscribe();
+            this.sampleSub = null;
+        }
+        if (this.sweepTimer) {
+            clearInterval(this.sweepTimer);
+            this.sweepTimer = null;
         }
     }
 }

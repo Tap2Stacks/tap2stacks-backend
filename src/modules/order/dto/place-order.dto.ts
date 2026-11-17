@@ -15,6 +15,7 @@ export class PlaceOrderDto {
 
     @ApiProperty({ type: String })
     @IsNotEmpty()
+    @Type(() => String)
     @IsString()
     amount: string;
 }

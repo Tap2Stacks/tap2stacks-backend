@@ -30,13 +30,25 @@ export class SocketGateway {
   @WebSocketServer() server: Server;
 
   @SubscribeMessage(EventName.SubscribeUser)
-  handleSubscribeUser(@ConnectedSocket() client: Socket, @MessageBody() payload: SubscribeUserPayload) {
-    const message = payload.userId
-    const signature = payload.signature
+  async handleSubscribeUser(@ConnectedSocket() client: Socket, @MessageBody() payload: SubscribeUserPayload) {
+    if (!payload?.userId || !payload?.signature) {
+      client.send('Invalid wss signature');
+      return;
+    }
 
-    if (this.authService.validateWssSignature(payload.userId, message, signature, true)) {
+    const message = payload.userId;
+    const signature = payload.signature;
+
+    let isValid = false;
+    try {
+      isValid = await this.authService.validateWssSignature(payload.userId, message, signature, true);
+    } catch {
+      isValid = false;
+    }
+
+    if (isValid) {
       const room = getUserRoom(payload.userId);
-      client.join(room)
+      await client.join(room);
 
       client.emit('subscribed', { room, status: 'success' });
 
@@ -49,10 +61,22 @@ export class SocketGateway {
 
   @SubscribeMessage(EventName.PlaceBet)
   async handlePlaceBet(@ConnectedSocket() client: Socket, @MessageBody() payload: PlaceOrderPayload) {
+    if (!payload?.userId || !payload?.cell || !payload?.userSignature) {
+      client.send('Invalid wss signature');
+      return;
+    }
+
     const cellId = getCellId(payload.cell);
     const message = `${payload.cell.gridTs}:${cellId}:${payload.amount}`;
 
-    if (this.authService.validateWssSignature(payload.userId, message, payload.userSignature, false)) {
+    let isValid = false;
+    try {
+      isValid = await this.authService.validateWssSignature(payload.userId, message, payload.userSignature, false);
+    } catch {
+      isValid = false;
+    }
+
+    if (isValid) {
       try {
         await this.orderService.placeOrder(payload.userId, {
           amount: payload.amount,
@@ -60,8 +84,9 @@ export class SocketGateway {
           marketId: payload.marketId,
         });
       } catch (e) {
-        this.logger.error(`Place bet failed: ${e.message}`);
-        client.send(`Place bet failed: ${e.message}`);
+        const errMsg = e instanceof Error ? e.message : String(e);
+        this.logger.error(`Place bet failed: ${errMsg}`);
+        client.send(`Place bet failed: ${errMsg}`);
       }
     } else {
       client.send('Invalid wss signature');
