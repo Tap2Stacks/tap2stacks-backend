@@ -1,5 +1,6 @@
 import * as dotenv from 'dotenv';
 import * as Joi from 'joi';
+import { DEFAULT_CORS_ORIGINS, parseCorsOrigins } from '../libs/cors';
 
 dotenv.config();
 
@@ -34,6 +35,9 @@ export const envVarsSchema = Joi.object()
     GEOFENCE_ENABLED: Joi.boolean().default(false),
     TRUSTED_PROXY_HOPS: Joi.number().integer().min(1).empty('').optional(),
     DEV_FAUCET_ENABLED: Joi.boolean().default(false),
+    CORS_ORIGINS: Joi.string()
+      .allow('')
+      .default(DEFAULT_CORS_ORIGINS.join(',')),
 
     JWT_SECRET: Joi.string().required(),
     ADMIN_API_KEY: Joi.string().min(32).required(),
@@ -85,6 +89,7 @@ export function parseEnv(rawEnv: NodeJS.ProcessEnv = process.env) {
       .split(',')
       .map((wallet) => wallet.trim())
       .filter(Boolean),
+    corsOrigins: parseCorsOrigins(envVars.CORS_ORIGINS as string | undefined),
     flag: {
       runSettlement:
         envVars.RUN_SETTLEMENT === true || envVars.RUN_SETTLEMENT === 'true',

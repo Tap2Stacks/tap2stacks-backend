@@ -1,2 +1,9 @@
-dist/*
-node_modules/*
+.git
+.github
+.handoff
+.env*
+dist
+node_modules
+logs
+*.log
+.DS_Store

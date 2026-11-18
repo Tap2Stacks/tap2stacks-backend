@@ -91,5 +91,19 @@ describe('config', () => {
       '0x1111111111111111111111111111111111111111',
       '0x2222222222222222222222222222222222222222',
     ]);
+    expect(configModule.env.corsOrigins).toEqual([
+      'http://localhost:5173',
+      'http://127.0.0.1:5173',
+    ]);
+  });
+
+  it('parses comma-separated CORS_ORIGINS from env', async () => {
+    process.env.CORS_ORIGINS =
+      ' https://st-web.vercel.app/ , http://localhost:5173 ';
+    const configModule = await import('src/config');
+    expect(configModule.env.corsOrigins).toEqual([
+      'https://st-web.vercel.app',
+      'http://localhost:5173',
+    ]);
   });
 });

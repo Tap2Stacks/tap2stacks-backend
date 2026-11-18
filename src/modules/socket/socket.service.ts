@@ -19,11 +19,14 @@ import {
   WithdrawSuccessMessage,
 } from './types';
 import { Cell } from 'src/libs/cell';
+import { env } from 'src/config';
+import { createCorsOriginValidator } from 'src/libs/cors';
 
 @Injectable()
 @WebSocketGateway({
   cors: {
-    origin: '*', // TODO: change to production domain
+    origin: createCorsOriginValidator(() => env.corsOrigins),
+    credentials: true,
   },
 })
 export class SocketService implements EventPublisher {

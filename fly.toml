@@ -1,0 +1,52 @@
+# Placeholder app name — the owner chooses the actual Fly app name on `fly launch --no-deploy --copy-config`
+app = "st-backend"
+primary_region = "sin"
+
+[build]
+  dockerfile = "Dockerfile"
+
+[env]
+  NODE_ENV = "production"
+  PORT = "5001"
+  WAL_PATH = "/data/wal"
+  ACCOUNT_SHARD_COUNT = "16"
+  # Update <engine-app> if you choose a Fly app name other than "st-engine"
+  ENGINE_URL = "ws://st-engine.internal:8090"
+  RPC_URL = "https://sepolia.base.org"
+  # Placeholders: fill from tap2stacks-contracts deployments/base-sepolia.json after contract deploy
+  VAULT_ADDRESS = ""
+  TUSDC_ADDRESS = ""
+  PROOF_ANCHOR_ADDRESS = ""
+  DEPLOY_BLOCK = "0"
+  # Optional comma-separated wallet addresses flagged as sparring bots
+  BOT_WALLETS = ""
+  RUN_SETTLEMENT = "true"
+  # Placeholder: set to "true" once PROOF_ANCHOR_ADDRESS is configured
+  PROOF_ANCHOR_ENABLED = "false"
+  GEOFENCE_ENABLED = "true"
+  TRUSTED_PROXY_HOPS = "1"
+  DEV_FAUCET_ENABLED = "false"
+  # Replace https://st-web.vercel.app with your deployed Vercel origin (comma-separated)
+  CORS_ORIGINS = "https://st-web.vercel.app,http://localhost:5173,http://127.0.0.1:5173"
+
+[mounts]
+  source = "st_backend_wal"
+  destination = "/data"
+
+[http_service]
+  internal_port = 5001
+  force_https = true
+  auto_stop_machines = "off"
+  auto_start_machines = true
+  min_machines_running = 1
+  processes = ["app"]
+
+  [[http_service.checks]]
+    grace_period = "30s"
+    interval = "15s"
+    method = "GET"
+    timeout = "5s"
+    path = "/api/health-check"
+
+[[vm]]
+  size = "shared-cpu-1x"

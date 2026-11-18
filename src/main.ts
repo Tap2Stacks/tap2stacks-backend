@@ -9,6 +9,7 @@ import helmet from 'helmet';
 import morgan from 'morgan';
 
 import { env } from './config';
+import { createCorsOriginValidator } from './libs/cors';
 import { redactSensitivePath } from './libs/redact-url';
 import { AppModule } from './modules/app.module';
 
@@ -29,7 +30,7 @@ const setMiddleware = (app: NestExpressApplication) => {
 
   app.enableCors({
     credentials: true,
-    origin: true,
+    origin: createCorsOriginValidator(() => env.corsOrigins),
   });
 
   app.use(morgan(REDACTED_COMBINED_LOG));

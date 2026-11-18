@@ -19,10 +19,12 @@ import { OrderService } from '../order/order.service';
 import { env } from 'src/config';
 import { socketGeofence } from '../player/geofence.middleware';
 import { getCellId } from 'src/libs/cell';
+import { createCorsOriginValidator } from 'src/libs/cors';
 
 @WebSocketGateway({
   cors: {
-    origin: '*', // TODO: change to production domain
+    origin: createCorsOriginValidator(() => env.corsOrigins),
+    credentials: true,
   },
 })
 export class SocketGateway {
