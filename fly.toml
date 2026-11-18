@@ -26,8 +26,8 @@ primary_region = "sin"
   GEOFENCE_ENABLED = "true"
   TRUSTED_PROXY_HOPS = "1"
   DEV_FAUCET_ENABLED = "false"
-  # Replace https://st-web.vercel.app with your deployed Vercel origin (comma-separated)
-  CORS_ORIGINS = "https://st-web.vercel.app,http://localhost:5173,http://127.0.0.1:5173"
+  # Replace https://st-web.vercel.app with your deployed Vercel origin (comma-separated). No localhost in production.
+  CORS_ORIGINS = "https://st-web.vercel.app"
 
 [mounts]
   source = "st_backend_wal"
@@ -48,5 +48,8 @@ primary_region = "sin"
     timeout = "5s"
     path = "/api/health-check"
 
+# Exactly ONE machine: settlement, the WAL and the account shards are single-writer.
+# Deploy with --ha=false and never scale this app above 1 machine.
 [[vm]]
   size = "shared-cpu-1x"
+  memory = "1gb"
