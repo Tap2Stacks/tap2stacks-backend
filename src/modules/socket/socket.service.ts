@@ -20,14 +20,11 @@ import {
 } from './types';
 import { Cell } from 'src/libs/cell';
 import { env } from 'src/config';
-import { createCorsOriginValidator } from 'src/libs/cors';
+import { buildCorsOptions } from 'src/libs/cors';
 
 @Injectable()
 @WebSocketGateway({
-  cors: {
-    origin: createCorsOriginValidator(() => env.corsOrigins),
-    credentials: true,
-  },
+  cors: buildCorsOptions(() => env.corsOrigins),
 })
 export class SocketService implements EventPublisher {
   @WebSocketServer() server: Server;

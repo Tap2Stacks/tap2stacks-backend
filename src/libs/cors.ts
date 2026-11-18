@@ -3,6 +3,23 @@ export const DEFAULT_CORS_ORIGINS = [
   'http://127.0.0.1:5173',
 ] as const;
 
+export const CORS_METHODS = [
+  'GET',
+  'HEAD',
+  'PUT',
+  'PATCH',
+  'POST',
+  'DELETE',
+  'OPTIONS',
+] as const;
+
+export const CORS_ALLOWED_HEADERS = [
+  'Authorization',
+  'Content-Type',
+  'wallet-address',
+  'accept',
+] as const;
+
 function normalizeOrigin(origin: string): string {
   return origin.trim().replace(/\/+$/, '');
 }
@@ -61,5 +78,14 @@ export function createCorsOriginValidator(
 ) {
   return (origin: string | undefined, callback: CorsOriginCallback): void => {
     callback(null, isCorsOriginAllowed(origin, getAllowedOrigins()));
+  };
+}
+
+export function buildCorsOptions(getAllowedOrigins: () => readonly string[]) {
+  return {
+    origin: createCorsOriginValidator(getAllowedOrigins),
+    credentials: false,
+    methods: [...CORS_METHODS],
+    allowedHeaders: [...CORS_ALLOWED_HEADERS],
   };
 }

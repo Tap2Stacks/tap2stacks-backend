@@ -19,13 +19,10 @@ import { OrderService } from '../order/order.service';
 import { env } from 'src/config';
 import { socketGeofence } from '../player/geofence.middleware';
 import { getCellId } from 'src/libs/cell';
-import { createCorsOriginValidator } from 'src/libs/cors';
+import { buildCorsOptions } from 'src/libs/cors';
 
 @WebSocketGateway({
-  cors: {
-    origin: createCorsOriginValidator(() => env.corsOrigins),
-    credentials: true,
-  },
+  cors: buildCorsOptions(() => env.corsOrigins),
 })
 export class SocketGateway {
   private readonly logger: Logger = new Logger(SocketGateway.name);
