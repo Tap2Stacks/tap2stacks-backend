@@ -39,6 +39,7 @@ export class EngineClientService implements OnModuleInit, OnModuleDestroy {
   private reconnectTimer: NodeJS.Timeout | null = null;
   private reconnectAttempt = 0;
   private stopped = false;
+  private readonly loggedSampleTickers = new Set<string>();
 
   private readonly initialBackoffMs: number;
   private readonly maxBackoffMs: number;
@@ -243,6 +244,12 @@ export class EngineClientService implements OnModuleInit, OnModuleDestroy {
   }
 
   private async handleSample(sample: EngineSample): Promise<void> {
+    if (!this.loggedSampleTickers.has(sample.ticker)) {
+      this.loggedSampleTickers.add(sample.ticker);
+      this.logger.log(
+        `live sample ${sample.ticker} tsMs=${sample.tsMs} price=${sample.price}`,
+      );
+    }
     try {
       await this.priceSampleRepo.save({
         ticker: sample.ticker,
