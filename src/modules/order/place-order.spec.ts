@@ -147,11 +147,11 @@ describe('OrderService.placeOrder', () => {
     },
   );
 
-  it('rejects marketId not NVDA/TSLA or different from cell.ticker with BAD_TICKER', async () => {
-    const btcCell = makeSignedCell({ ticker: 'BTCUSDT' });
+  it('rejects unknown marketId or different from cell.ticker with BAD_TICKER', async () => {
+    const btcCell = makeSignedCell({ ticker: 'BTC' });
     await expect(
       service.placeOrder('user-1', {
-        marketId: 'BTCUSDT',
+        marketId: 'BTC',
         amount: '10',
         cell: btcCell,
       }),
@@ -276,6 +276,33 @@ describe('OrderService.placeOrder', () => {
         ticker: 'NVDA',
         cellId: getCellId(cell),
       }),
+    );
+  });
+
+  it.each(['AAPL', 'SP500'])('accepts a valid %s tap', async (ticker) => {
+    feedHealthStore.updateHealth({
+      type: 'health',
+      ticker,
+      serverTsMs: Date.now(),
+      lastSampleAgeMs: 100,
+      stale: false,
+    });
+    const cell = makeSignedCell({ ticker });
+
+    const order = await service.placeOrder('user-1', {
+      marketId: ticker,
+      amount: '10',
+      cell,
+    });
+
+    expect(order.ticker).toBe(ticker);
+    expect(order.marketId).toBe(ticker);
+    expect(order.status).toBe(OrderStatus.OPEN);
+    expect(accountService.placeBet).toHaveBeenCalledWith(
+      'user-1',
+      '10',
+      ticker,
+      order.orderId,
     );
   });
 

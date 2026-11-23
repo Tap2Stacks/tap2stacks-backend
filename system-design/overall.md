@@ -16,7 +16,7 @@
 | ----------------- | -------------------------------------------------------- | ------------------------------------------------------------------------------------- |
 | FE                | User interface (Web3 wallet, order placement, live grid) | WebSocket, HTTP API                                                                   |
 | Hub Contract      | Blockchain smart contract                                | Emits deposit/withdraw events, accepts signed withdraw transactions                   |
-| Price Feed        | External exchange (Binance/OKX)                          | Streaming API (TS, Price)                                                             |
+| Price Feed        | Engine → Hyperliquid HIP-3 xyz stock perps             | Streaming API (TS, Price)                                                             |
 | Price Tick Module | Consume feed, fill gaps, generate PriceTick events       | Async queue → Grid Module, Order Module                                               |
 | Grid Module       | Compute price grid + reward rate + cell signature        | FE WebSocket, uses PriceTick events                                                   |
 | Account Module    | Manage in-memory balances, WAL, ledger, User shard queue | Receives economic events from Order Module, Payment Module                            |

@@ -66,9 +66,12 @@ describe('cell helpers', () => {
     expect(centsToPrice(15753)).toBe('157.53');
     expect(centsToPrice(3)).toBe('0.03');
     expect(centsToPrice(100)).toBe('1.00');
+    expect(centsToPrice(150)).toBe('1.50');
+    expect(centsToPrice(707600)).toBe('7076.00');
 
     expect(priceToCents('157.50')).toBe(15750);
     expect(priceToCents('19.99')).toBe(1999);
     expect(priceToCents('0.03')).toBe(3);
+    expect(priceToCents('7076.50')).toBe(707650);
   });
 });

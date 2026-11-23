@@ -9,7 +9,7 @@ export class GetOrdersDto {
     @IsEnum(OrderStatus)
     status?: OrderStatus;
 
-    @ApiPropertyOptional({ description: 'Filter by ticker (e.g. NVDA, TSLA)' })
+    @ApiPropertyOptional({ description: 'Filter by ticker (e.g. NVDA, TSLA, AAPL, SP500)' })
     @IsOptional()
     @IsString()
     ticker?: string;

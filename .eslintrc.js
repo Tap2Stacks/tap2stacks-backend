@@ -13,7 +13,6 @@ module.exports = {
   root: true,
   env: {
     node: true,
-    vitest: true,
   },
   ignorePatterns: ['.eslintrc.js'],
   rules: {
