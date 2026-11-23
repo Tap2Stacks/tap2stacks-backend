@@ -286,6 +286,26 @@ describe('EngineClientService', () => {
       price: '157.53',
       ts: 1795000000873,
     });
+
+    server.sockets[0].send(
+      JSON.stringify({
+        type: 'sample',
+        ticker: 'SP500',
+        tsMs: 1795000000900,
+        price: 7076.5,
+      }),
+    );
+    await waitFor(() => samples.length === 2);
+    expect(priceSampleRepo.save).toHaveBeenCalledWith({
+      ticker: 'SP500',
+      tsMs: 1795000000900,
+      price: '7076.5',
+    });
+    expect(events.emitPriceNow).toHaveBeenCalledWith({
+      ticker: 'SP500',
+      price: '7076.50',
+      ts: 1795000000900,
+    });
   });
 
   it('records engine-reported stale intervals and emits feed_health only on change', async () => {

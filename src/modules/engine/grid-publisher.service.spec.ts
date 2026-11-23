@@ -49,4 +49,39 @@ describe('GridPublisherService', () => {
     });
     expect(verifyCell(cell, signerKey)).toBe(true);
   });
+
+  it('publish preserves SP500 four-digit prices and $1.50 bands', () => {
+    const emitGridUpdate = vi.fn().mockResolvedValue(undefined);
+    const signerKey = 'test-cell-signer-key';
+    const service = new GridPublisherService(
+      { emitGridUpdate } as any,
+      signerKey,
+    );
+
+    service.publish({
+      type: 'quote',
+      ticker: 'SP500',
+      serverTsMs: 1795000000100,
+      spot: 7076.25,
+      bandCents: 150,
+      cells: [
+        {
+          windowStartMs: 1795000010000,
+          windowEndMs: 1795000015000,
+          lowerCents: 707600,
+          upperCents: 707750,
+          hitProbability: 0.41,
+          multiplier: 2.31,
+        },
+      ],
+    });
+
+    const payload = emitGridUpdate.mock.calls[0][0];
+    expect(payload.priceStep).toBe('1.50');
+    expect(payload.cells[0]).toMatchObject({
+      lowerPrice: '7076.00',
+      upperPrice: '7077.50',
+    });
+    expect(verifyCell(payload.cells[0], signerKey)).toBe(true);
+  });
 });

@@ -4,7 +4,7 @@
 
 The **Price Tick Module** is responsible for:
 
-* Streaming real-time prices from **external exchanges** (Binance / OKX)
+* Streaming real-time prices from the engine's Hyperliquid HIP-3 xyz stock-perp feed
 * Normalizing price data into the canonical form `(ts, price)`
 * Generating **synthetic / virtual price ticks** to fill time gaps
 * Real-time fanout of **PriceTick events** to:
@@ -23,7 +23,7 @@ The **Price Tick Module** is responsible for:
 
 ```ts
 struct RawPriceEvent {
-  exchange: 'BINANCE' | 'OKX'
+  exchange: 'ENGINE_HYPERLIQUID_XYZ'
   ts: Timestamp        // exchange timestamp
   price: Decimal
 }

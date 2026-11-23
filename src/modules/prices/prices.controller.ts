@@ -8,6 +8,7 @@ import {
 import { InjectRepository } from '@nestjs/typeorm';
 import BigNumber from 'bignumber.js';
 import { Between, Repository } from 'typeorm';
+import { HYPERLIQUID_PRICE_SOURCE, isSupportedTicker } from 'src/libs/tickers';
 import { FeedHealthStore } from '../engine/feed-health.store';
 import { PriceSample } from '../engine/price-sample.entity';
 import { PublicRateLimitGuard } from '../feed/public-rate-limit.guard';
@@ -25,7 +26,7 @@ export class PricesController {
     @Query('ticker') ticker: string,
     @Query('sinceMs') raw?: string,
   ) {
-    if (ticker !== 'NVDA' && ticker !== 'TSLA')
+    if (!isSupportedTicker(ticker))
       throw new BadRequestException('Invalid ticker');
     if (raw !== undefined && (!raw.trim() || !Number.isFinite(Number(raw))))
       throw new BadRequestException('Invalid sinceMs');
@@ -41,6 +42,7 @@ export class PricesController {
     });
     return {
       ticker,
+      source: HYPERLIQUID_PRICE_SOURCE,
       prevDayPx: this.health.prevDayPx(ticker),
       points: samples
         .map((sample) => ({

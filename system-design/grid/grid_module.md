@@ -29,7 +29,7 @@ The Grid Module is a **pure computation and signing layer**:
 struct PriceTick {
   ts: Timestamp
   price: Decimal
-  source: 'Binance' | 'OKX' | ...
+  source: 'engine-hyperliquid-xyz'
 }
 ```
 

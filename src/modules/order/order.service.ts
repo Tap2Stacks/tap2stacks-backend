@@ -16,6 +16,7 @@ import {
   priceToCents,
   verifyCell,
 } from 'src/libs/cell';
+import { SUPPORTED_TICKER_SET } from 'src/libs/tickers';
 import { TokenBucket } from 'src/libs/token-bucket';
 import { Repository } from 'typeorm';
 import { uuidv7 } from 'uuidv7';
@@ -36,7 +37,7 @@ import { OrderRejectedError, OrderStatus, RejectReason } from './types';
 
 export { OrderRejectedError, RejectReason };
 
-const ALLOWED_TICKERS = new Set(['NVDA', 'TSLA']);
+const ALLOWED_TICKERS = SUPPORTED_TICKER_SET;
 const MIN_STAKE = 1;
 const MAX_STAKE = 25;
 export const MAX_CELL_STAKE = 100;

@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import { PricesController } from './prices.controller';
+import { HYPERLIQUID_PRICE_SOURCE } from 'src/libs/tickers';
 import { FeedHealthStore } from '../engine/feed-health.store';
 
 describe('recent prices', () => {
@@ -19,9 +20,10 @@ describe('recent prices', () => {
       prevDayPx: 5,
     });
     const controller = new PricesController({ find } as any, store);
-    await expect(controller.recent('BAD', '0')).rejects.toThrow();
+    await expect(controller.recent('BTC', '0')).rejects.toThrow();
     expect(await controller.recent('NVDA', '0')).toEqual({
       ticker: 'NVDA',
+      source: HYPERLIQUID_PRICE_SOURCE,
       prevDayPx: 5,
       points: [
         { ts: 41000, price: '1.23' },
@@ -31,6 +33,18 @@ describe('recent prices', () => {
     expect(find.mock.calls[0][0].take).toBe(600);
     vi.useRealTimers();
   });
+  it.each(['AAPL', 'SP500'])('accepts %s', async (ticker) => {
+    const find = vi.fn().mockResolvedValue([]);
+    const controller = new PricesController(
+      { find } as any,
+      new FeedHealthStore(),
+    );
+    await expect(controller.recent(ticker, '0')).resolves.toMatchObject({
+      ticker,
+      source: HYPERLIQUID_PRICE_SOURCE,
+    });
+  });
+
   it('reports reference price changes', () => {
     const store = new FeedHealthStore();
     store.markConnected();
