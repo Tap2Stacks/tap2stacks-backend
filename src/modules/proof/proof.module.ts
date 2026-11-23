@@ -34,6 +34,7 @@ import {
         rpcUrl: env.web3.rpcUrl,
         contractAddress: env.web3.proofAnchorAddress,
         relayerPrivateKey: env.secret.relayerPrivateKey,
+        builderCode: process.env.BASE_BUILDER_CODE,
       }),
     },
     {

@@ -10,7 +10,10 @@ import {
   Interface,
   JsonRpcProvider,
   Wallet,
+  concat,
   isAddress,
+  toBeHex,
+  toUtf8Bytes,
 } from 'ethers';
 import { ProofPostResult } from '../types';
 
@@ -37,6 +40,7 @@ export interface BaseProofPublisherConfig {
   rpcUrl: string;
   contractAddress: string;
   relayerPrivateKey: string;
+  builderCode?: string;
 }
 
 export interface ProofAnchorContractLike {
@@ -49,7 +53,7 @@ export interface ProofAnchorContractLike {
     hash: string;
     wait(): Promise<{
       hash?: string;
-      logs?: Array<{
+      logs?: ReadonlyArray<{
         address?: string;
         topics: readonly string[];
         data: string;
@@ -134,11 +138,35 @@ export class BaseProofPublisher implements ProofPublisher, OnModuleInit {
 
     const provider = new JsonRpcProvider(this.config.rpcUrl);
     const signer = new Wallet(this.config.relayerPrivateKey, provider);
-    this.contract = new Contract(
-      this.config.contractAddress,
-      PROOF_ANCHOR_ABI,
-      signer,
-    ) as unknown as ProofAnchorContractLike;
+    const code = this.config.builderCode?.trim();
+    if (code && !/^bc_[a-z0-9]{1,252}$/.test(code)) {
+      throw new Error('BASE_BUILDER_CODE must be a Base Dashboard Builder Code');
+    }
+    if (code) {
+      const suffix = concat([
+        toUtf8Bytes(code),
+        toBeHex(code.length, 1),
+        '0x0080218021802180218021802180218021',
+      ]);
+      this.contract = {
+        postRoot: async (...args) => {
+          if ((await provider.getNetwork()).chainId !== 84532n) {
+            throw new Error('Builder Code proof publishing requires Base Sepolia');
+          }
+          const data = proofAnchorInterface.encodeFunctionData('postRoot', args);
+          return signer.sendTransaction({
+            to: this.config.contractAddress,
+            data: concat([data, suffix]),
+          });
+        },
+      };
+    } else {
+      this.contract = new Contract(
+        this.config.contractAddress,
+        PROOF_ANCHOR_ABI,
+        signer,
+      ) as unknown as ProofAnchorContractLike;
+    }
     this.logger.log(
       `ProofAnchor publisher initialized for ${this.config.contractAddress}`,
     );
