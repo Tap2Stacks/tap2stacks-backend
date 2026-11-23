@@ -9,6 +9,15 @@ export class PlayerService {
   constructor(
     @InjectRepository(Player) private readonly players: Repository<Player>,
   ) {}
+
+  async assertTradingAttestation(rawAddress: string): Promise<void> {
+    const address = getAddress(rawAddress);
+    const player = await this.players.findOneBy({ address });
+    if (!player?.age18At || !player.notUSAt) {
+      throw new ForbiddenException({ error: 'ATTESTATION_REQUIRED' });
+    }
+  }
+
   async getOrCreate(
     rawAddress: string,
     age18?: boolean,

@@ -3,6 +3,7 @@ import { TypeOrmModule } from '@nestjs/typeorm';
 import { AccountModule } from '../account/account.module';
 import { EngineModule } from '../engine/engine.module';
 import { CELL_SIGNER_KEY_TOKEN } from '../engine/engine.types';
+import { PlayerModule } from '../player/player.module';
 import { SocketModule } from '../socket/socket.module';
 import { Order } from './entities/order.entity';
 import { ExposureTracker } from './exposure.tracker';
@@ -17,6 +18,7 @@ import { OrderPriceTickChannel } from './price-tick.channel';
         TypeOrmModule.forFeature([Order]),
         forwardRef(() => SocketModule),
         forwardRef(() => EngineModule),
+        PlayerModule,
     ],
     controllers: [OrderController],
     providers: [

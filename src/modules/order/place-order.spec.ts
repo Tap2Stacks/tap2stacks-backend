@@ -13,7 +13,7 @@ vi.hoisted(() => {
   process.env.RELAYER_PRIVATE_KEY ??= '0x2222222222222222222222222222222222222222222222222222222222222222';
 });
 
-import { BadRequestException } from '@nestjs/common';
+import { BadRequestException, ForbiddenException } from '@nestjs/common';
 import { Cell, getCellId, signCell } from 'src/libs/cell';
 import { FeedHealthStore } from '../engine/feed-health.store';
 import { OrderService, OrderRejectedError } from './order.service';
@@ -63,6 +63,7 @@ describe('OrderService.placeOrder', () => {
   let engineClient: {
     sendExposure: ReturnType<typeof vi.fn>;
   };
+  let players: { assertTradingAttestation: ReturnType<typeof vi.fn> };
   let service: OrderService;
 
   beforeEach(() => {
@@ -104,6 +105,7 @@ describe('OrderService.placeOrder', () => {
     engineClient = {
       sendExposure: vi.fn(),
     };
+    players = { assertTradingAttestation: vi.fn().mockResolvedValue(undefined) };
 
     service = new OrderService(
       orderRepository as any,
@@ -112,12 +114,32 @@ describe('OrderService.placeOrder', () => {
       feedHealthStore,
       exposureTracker,
       engineClient as any,
+      players as any,
       SIGNER_KEY,
     );
   });
 
   afterEach(() => {
     vi.useRealTimers();
+  });
+
+  it('rejects an order even with a valid quote if the player has not attested', async () => {
+    players.assertTradingAttestation.mockRejectedValue(
+      new ForbiddenException({ error: 'ATTESTATION_REQUIRED' }),
+    );
+    await expect(
+      service.placeOrder('user-1', {
+        marketId: 'NVDA',
+        amount: '10',
+        cell: makeSignedCell(),
+      }),
+    ).rejects.toMatchObject({
+      status: 403,
+      response: { error: 'ATTESTATION_REQUIRED' },
+    });
+    expect(players.assertTradingAttestation).toHaveBeenCalledWith('user-1');
+    expect(orderRepository.save).not.toHaveBeenCalled();
+    expect(accountService.placeBet).not.toHaveBeenCalled();
   });
 
   it.each([0, -1, 26, NaN])(

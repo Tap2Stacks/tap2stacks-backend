@@ -24,6 +24,7 @@ import { AccountService } from '../account/account.service';
 import { EngineClientService } from '../engine/engine-client.service';
 import { CELL_SIGNER_KEY_TOKEN, EngineSample } from '../engine/engine.types';
 import { FeedHealthStore } from '../engine/feed-health.store';
+import { PlayerService } from '../player/player.service';
 import {
   EVENT_PUBLISHER,
   EventPublisher,
@@ -87,6 +88,7 @@ export class OrderService implements OnModuleInit {
     private readonly feedHealthStore: FeedHealthStore,
     private readonly exposureTracker: ExposureTracker,
     private readonly engineClient: EngineClientService,
+    private readonly players: PlayerService,
     @Optional()
     @Inject(CELL_SIGNER_KEY_TOKEN)
     private readonly cellSignerKey?: string,
@@ -208,6 +210,8 @@ export class OrderService implements OnModuleInit {
   }
 
   async placeOrder(userId: string, dto: PlaceOrderDto): Promise<Order> {
+    await this.players.assertTradingAttestation(userId);
+
     // 1. Amount check (cheapest)
     const rawAmount = dto?.amount as unknown;
     const amountBn =

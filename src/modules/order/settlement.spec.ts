@@ -130,6 +130,7 @@ describe('OrderService settlement & void', () => {
       feedHealthStore,
       exposureTracker,
       engineClient as any,
+      { assertTradingAttestation: vi.fn().mockResolvedValue(undefined) } as any,
       SIGNER_KEY,
     );
   });

@@ -32,7 +32,11 @@ export const envVarsSchema = Joi.object()
 
     RUN_SETTLEMENT: Joi.boolean().default(true),
     PROOF_ANCHOR_ENABLED: Joi.boolean().default(false),
-    GEOFENCE_ENABLED: Joi.boolean().default(false),
+    GEOFENCE_ENABLED: Joi.boolean().when('NODE_ENV', {
+      is: 'production',
+      then: Joi.boolean().default(true),
+      otherwise: Joi.boolean().default(false),
+    }),
     TRUSTED_PROXY_HOPS: Joi.number().integer().min(1).empty('').optional(),
     DEV_FAUCET_ENABLED: Joi.boolean().default(false),
     CORS_ORIGINS: Joi.string()

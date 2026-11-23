@@ -20,57 +20,65 @@ import {
   geofenceHttp,
   socketGeofence,
 } from './geofence.middleware';
-vi.mock('geoip-lite', () => ({
-  lookup: (ip: string) =>
-    ip === '8.8.8.8'
-      ? { country: 'US' }
-      : ip === '1.1.1.1'
-        ? { country: 'VN' }
-        : null,
-}));
+
+const US_IP = '8.8.8.8';
+const VN_IP = '203.113.131.1';
+const UNKNOWN_IP = '127.0.0.1';
+
+const cases = [
+  [US_IP, false],
+  [VN_IP, true],
+  [UNKNOWN_IP, false],
+] as const;
+
 describe('geofence', () => {
-  it('returns 451 for a US IP and passes a VN IP', () => {
-    const next = vi.fn(),
-      response = { status: vi.fn().mockReturnThis(), json: vi.fn() };
-    geofenceHttp(true)(
-      {
-        headers: {},
-        socket: { remoteAddress: '8.8.8.8' },
-        path: '/api/auth/login',
-      } as any,
-      response as any,
-      next,
-    );
-    expect(response.status).toHaveBeenCalledWith(451);
-    expect(response.json).toHaveBeenCalledWith({
-      error: 'UNAVAILABLE_IN_REGION',
-    });
-    geofenceHttp(true)(
-      {
-        headers: {},
-        socket: { remoteAddress: '1.1.1.1' },
-        path: '/api/auth/login',
-      } as any,
-      response as any,
-      next,
-    );
-    expect(next).toHaveBeenCalledTimes(1);
-  });
-  it('refuses a socket handshake from a US IP', () => {
-    const next = vi.fn();
-    socketGeofence(true)(
-      { handshake: { headers: {}, address: '8.8.8.8' } } as any,
-      next,
-    );
-    expect(next.mock.calls[0][0]).toBeInstanceOf(Error);
-  });
+  it.each(cases)(
+    'checks the client IP %s on HTTP orders (pass: %s)',
+    (ip, allowed) => {
+      const next = vi.fn(),
+        response = { status: vi.fn().mockReturnThis(), json: vi.fn() };
+      geofenceHttp(true)(
+        {
+          headers: {},
+          socket: { remoteAddress: ip },
+          method: 'POST',
+          originalUrl: '/API/Orders/?source=trade',
+        } as any,
+        response as any,
+        next,
+      );
+      if (allowed) {
+        expect(next).toHaveBeenCalledOnce();
+        expect(response.status).not.toHaveBeenCalled();
+      } else {
+        expect(next).not.toHaveBeenCalled();
+        expect(response.status).toHaveBeenCalledWith(451);
+        expect(response.json).toHaveBeenCalledWith({
+          error: 'UNAVAILABLE_IN_REGION',
+        });
+      }
+    },
+  );
+
+  it.each(cases)(
+    'checks the client IP %s on socket handshakes (pass: %s)',
+    (address, allowed) => {
+      const next = vi.fn();
+      socketGeofence(true)({ handshake: { headers: {}, address } } as any, next);
+      if (allowed) {
+        expect(next).toHaveBeenCalledWith();
+      } else {
+        expect(next).toHaveBeenCalledWith(new Error('UNAVAILABLE_IN_REGION'));
+      }
+    },
+  );
 });
 it('allows the health check and disables the gate when configured off', () => {
   const next = vi.fn(),
     res = { status: vi.fn().mockReturnThis(), json: vi.fn() };
   const request = {
     headers: {},
-    socket: { remoteAddress: '8.8.8.8' },
+    socket: { remoteAddress: US_IP },
     path: '/api/health-check',
   } as any;
   geofenceHttp(true)(request, res as any, next);
@@ -85,21 +93,28 @@ it('allows the health check and disables the gate when configured off', () => {
 describe('trusted proxy selection', () => {
   it('ignores a spoofed x-forwarded-for by default', () => {
     expect(
-      countryFromRequest({ 'x-forwarded-for': '1.1.1.1' }, '8.8.8.8'),
+      countryFromRequest({ 'x-forwarded-for': VN_IP }, US_IP),
     ).toBe('US');
   });
-  it('uses Fly-Client-IP only on Fly', () => {
+  it('requires Fly-Client-IP on Fly and ignores it everywhere else', async () => {
+    const { env } = await import('../../config');
+    const previousHops = env.flag.trustedProxyHops;
     const before = process.env.FLY_APP_NAME;
     try {
       delete process.env.FLY_APP_NAME;
       expect(
-        countryFromRequest({ 'fly-client-ip': '1.1.1.1' }, '8.8.8.8'),
+        countryFromRequest({ 'fly-client-ip': VN_IP }, US_IP),
       ).toBe('US');
       process.env.FLY_APP_NAME = 'test-app';
+      env.flag.trustedProxyHops = 1;
       expect(
-        countryFromRequest({ 'fly-client-ip': '1.1.1.1' }, '8.8.8.8'),
+        countryFromRequest({ 'fly-client-ip': VN_IP }, US_IP),
       ).toBe('VN');
+      expect(
+        countryFromRequest({ 'x-forwarded-for': VN_IP }, US_IP),
+      ).toBeNull();
     } finally {
+      env.flag.trustedProxyHops = previousHops;
       if (before === undefined) delete process.env.FLY_APP_NAME;
       else process.env.FLY_APP_NAME = before;
     }
@@ -111,12 +126,19 @@ describe('trusted proxy selection', () => {
       env.flag.trustedProxyHops = 1;
       expect(
         countryFromRequest(
-          { 'x-forwarded-for': '8.8.8.8, 1.1.1.1' },
-          '8.8.8.8',
+          { 'x-forwarded-for': `${US_IP}, ${VN_IP}` },
+          US_IP,
         ),
       ).toBe('VN');
     } finally {
       env.flag.trustedProxyHops = previous;
     }
   });
+});
+
+it('defaults the geofence on in production and off in local development', async () => {
+  const { parseEnv } = await import('../../config');
+  const rawEnv = { ...process.env, GEOFENCE_ENABLED: undefined };
+  expect(parseEnv({ ...rawEnv, NODE_ENV: 'production' }).flag.geofenceEnabled).toBe(true);
+  expect(parseEnv({ ...rawEnv, NODE_ENV: 'local' }).flag.geofenceEnabled).toBe(false);
 });

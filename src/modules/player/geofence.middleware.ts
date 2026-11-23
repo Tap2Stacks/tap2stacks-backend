@@ -16,9 +16,10 @@ export function countryFromRequest(
   headers: Headers,
   remoteAddr: string | null | undefined,
 ): string | null {
-  const flyValue = process.env.FLY_APP_NAME
-    ? firstHeaderValue(headers['fly-client-ip'])
-    : undefined;
+  if (process.env.FLY_APP_NAME) {
+    const flyIp = firstHeaderValue(headers['fly-client-ip']);
+    return flyIp ? (geoip.lookup(flyIp)?.country || null) : null;
+  }
   const forwarded = headers['x-forwarded-for'];
   const chain =
     (Array.isArray(forwarded) ? forwarded.join(',') : forwarded)
@@ -30,32 +31,34 @@ export function countryFromRequest(
     hops !== null && chain.length >= hops
       ? chain[chain.length - hops]
       : undefined;
-  const ip = flyValue || fromProxy || remoteAddr?.trim() || undefined;
-  return ip ? (geoip.lookup(ip)?.country ?? null) : null;
+  const ip = fromProxy || remoteAddr?.trim();
+  return ip ? (geoip.lookup(ip)?.country || null) : null;
 }
 export function geofenceHttp(enabled: boolean) {
   return (req: Request, res: Response, next: NextFunction): void => {
-    const path = (req.originalUrl ?? req.path).split('?')[0];
-    if (
-      enabled &&
-      path.startsWith('/api/') &&
-      path !== '/api/health-check' &&
-      countryFromRequest(req.headers, req.socket.remoteAddress) === 'US'
-    ) {
-      res.status(451).json({ error: 'UNAVAILABLE_IN_REGION' });
-      return;
+    const path = (req.originalUrl ?? req.path).split('?')[0].toLowerCase();
+    if (enabled && path.startsWith('/api/') && path !== '/api/health-check') {
+      const country = countryFromRequest(req.headers, req.socket.remoteAddress);
+      const isOrder = req.method === 'POST' && /^\/api\/orders\/?$/.test(path);
+      if (country === 'US' || (isOrder && !country)) {
+        res.status(451).json({ error: 'UNAVAILABLE_IN_REGION' });
+        return;
+      }
     }
     next();
   };
 }
 export function socketGeofence(enabled: boolean) {
   return (socket: Socket, next: (error?: Error) => void): void => {
-    if (
-      enabled &&
-      countryFromRequest(socket.handshake.headers, socket.handshake.address) ===
-        'US'
-    )
-      return next(new Error('UNAVAILABLE_IN_REGION'));
+    if (enabled) {
+      const country = countryFromRequest(
+        socket.handshake.headers,
+        socket.handshake.address,
+      );
+      if (!country || country === 'US') {
+        return next(new Error('UNAVAILABLE_IN_REGION'));
+      }
+    }
     next();
   };
 }

@@ -33,6 +33,30 @@ describe('players', () => {
       response: { error: 'ATTESTATION_REQUIRED' },
     });
   });
+
+  it.each([null, { age18At: new Date() }, { notUSAt: new Date() }])(
+    'refuses trading without both recorded attestations (%j)',
+    async (player) => {
+      const service = new PlayerService({
+        findOneBy: vi.fn().mockResolvedValue(player),
+      } as any);
+      await expect(
+        service.assertTradingAttestation('0x1111111111111111111111111111111111111111'),
+      ).rejects.toMatchObject({
+        status: 403,
+        response: { error: 'ATTESTATION_REQUIRED' },
+      });
+    },
+  );
+
+  it('allows trading with both recorded attestations', async () => {
+    const service = new PlayerService({
+      findOneBy: vi.fn().mockResolvedValue({ age18At: new Date(), notUSAt: new Date() }),
+    } as any);
+    await expect(
+      service.assertTradingAttestation('0x1111111111111111111111111111111111111111'),
+    ).resolves.toBeUndefined();
+  });
 });
 
 it('flags a configured bot case-insensitively', async () => {
