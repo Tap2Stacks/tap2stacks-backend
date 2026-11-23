@@ -13,6 +13,8 @@ primary_region = "sin"
   # Update <engine-app> if you choose a Fly app name other than "st-engine"
   ENGINE_URL = "ws://st-engine.internal:8090"
   RPC_URL = "https://sepolia.base.org"
+  # tap2stacks Base Builder Code (public); appended to proof-anchor transactions
+  BASE_BUILDER_CODE = "bc_ymo2v08a"
   # Placeholders: fill from tap2stacks-contracts deployments/base-sepolia.json after contract deploy
   VAULT_ADDRESS = ""
   TUSDC_ADDRESS = ""
