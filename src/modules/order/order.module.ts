@@ -1,5 +1,7 @@
 import { forwardRef, Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
+import { env } from 'src/config';
+import { SETTLEMENT_VOID_GAP_MS_TOKEN } from 'src/config/settlement';
 import { AccountModule } from '../account/account.module';
 import { EngineModule } from '../engine/engine.module';
 import { CELL_SIGNER_KEY_TOKEN } from '../engine/engine.types';
@@ -26,6 +28,10 @@ import { OrderPriceTickChannel } from './price-tick.channel';
         {
             provide: CELL_SIGNER_KEY_TOKEN,
             useFactory: () => process.env.CELL_SIGNER_KEY ?? '',
+        },
+        {
+            provide: SETTLEMENT_VOID_GAP_MS_TOKEN,
+            useFactory: () => env.settlement.voidGapMs,
         },
         {
             provide: OrderPriceTickChannel,

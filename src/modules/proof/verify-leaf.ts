@@ -1,3 +1,4 @@
+import { resolveSettlementVoidGapMs } from 'src/config/settlement';
 import { priceToCents } from 'src/libs/cell';
 import { segmentTouchesBand } from 'src/libs/touch';
 import { CanonicalSettledOrder, SettledTapStatus } from './types';
@@ -7,8 +8,6 @@ export interface PriceLogLine {
   tsMs: number;
   price: string;
 }
-
-const VOID_GAP_MS = 3000;
 
 function parseLines(
   input: readonly (PriceLogLine | string)[] | string,
@@ -38,6 +37,7 @@ export function recomputeStatus(
     | 'upperPrice'
   >,
   priceLogLines: readonly (PriceLogLine | string)[] | string,
+  voidGapMs: number = resolveSettlementVoidGapMs(),
 ): SettledTapStatus {
   if (leaf.status === 'VOIDED') {
     return 'VOIDED';
@@ -54,7 +54,7 @@ export function recomputeStatus(
 
   for (const sample of samples) {
     const sampleCents = priceToCents(sample.price);
-    const hasGap = prevTs !== undefined && sample.tsMs - prevTs > VOID_GAP_MS;
+    const hasGap = prevTs !== undefined && sample.tsMs - prevTs > voidGapMs;
     const anchorCents = hasGap ? undefined : prevCents;
 
     if (

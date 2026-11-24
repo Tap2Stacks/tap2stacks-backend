@@ -1,5 +1,6 @@
 import { buildFeedEntries, SettledOrder } from '../feed/feed-entries';
 import { env } from 'src/config';
+import { SETTLEMENT_VOID_GAP_MS_TOKEN } from 'src/config/settlement';
 import {
   BadRequestException,
   Inject,
@@ -43,7 +44,6 @@ const MAX_STAKE = 25;
 export const MAX_CELL_STAKE = 100;
 const QUOTE_FRESHNESS_MS = 1500;
 const WINDOW_LEAD_TIME_MS = 5000;
-const VOID_GAP_MS = 3000;
 const CLIENT_TAP_ID_RE = /^[A-Za-z0-9-]+$/;
 
 function sanitizeClientTapId(raw: unknown): string | undefined {
@@ -91,6 +91,9 @@ export class OrderService implements OnModuleInit {
     @Optional()
     @Inject(CELL_SIGNER_KEY_TOKEN)
     private readonly cellSignerKey?: string,
+    @Optional()
+    @Inject(SETTLEMENT_VOID_GAP_MS_TOKEN)
+    private readonly settlementVoidGapMs?: number,
   ) {}
 
   private getBucketKey(ticker: string, startTs: number): string {
@@ -99,6 +102,10 @@ export class OrderService implements OnModuleInit {
 
   private getCellSignerKey(): string {
     return this.cellSignerKey ?? process.env.CELL_SIGNER_KEY ?? '';
+  }
+
+  private getSettlementVoidGapMs(): number {
+    return this.settlementVoidGapMs ?? env.settlement.voidGapMs;
   }
 
   private runSerializedForTicker<T>(
@@ -393,7 +400,7 @@ export class OrderService implements OnModuleInit {
       const hasGapVoid =
         prevTs !== undefined &&
         sample.tsMs > prevTs &&
-        sample.tsMs - prevTs > VOID_GAP_MS;
+        sample.tsMs - prevTs > this.getSettlementVoidGapMs();
       const staleIntervals = this.feedHealthStore.staleIntervals(
         ticker,
         sample.tsMs,

@@ -241,4 +241,23 @@ describe('GET /api/proofs/orders/:orderId', () => {
     expect(res.body.index).toBe(12);
     expect(res.body.taps).toHaveLength(2);
   });
+
+  it('uses configured SETTLEMENT_VOID_GAP_MS when computing covering priceLogIndexes', async () => {
+    const prevEnv = process.env.SETTLEMENT_VOID_GAP_MS;
+    try {
+      // interiorOrder has cellTimeStart=1700000405000 and mainBatch.fromMs=1700000400000 (5000 ms inside).
+      // With SETTLEMENT_VOID_GAP_MS=6000, 405000 - 6000 = 399000 < 400000 -> must include batch 11 too.
+      process.env.SETTLEMENT_VOID_GAP_MS = '6000';
+      const res = await request(app.getHttpServer())
+        .get(`/api/proofs/orders/${UUID_2}`)
+        .expect(200);
+      expect(res.body.priceLogIndexes).toEqual([11, 12]);
+    } finally {
+      if (prevEnv === undefined) {
+        delete process.env.SETTLEMENT_VOID_GAP_MS;
+      } else {
+        process.env.SETTLEMENT_VOID_GAP_MS = prevEnv;
+      }
+    }
+  });
 });

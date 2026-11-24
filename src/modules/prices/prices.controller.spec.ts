@@ -1,6 +1,9 @@
 import { describe, expect, it, vi } from 'vitest';
 import { PricesController } from './prices.controller';
-import { HYPERLIQUID_PRICE_SOURCE } from 'src/libs/tickers';
+import {
+  DERIBIT_PRICE_SOURCE,
+  HYPERLIQUID_PRICE_SOURCE,
+} from 'src/libs/tickers';
 import { FeedHealthStore } from '../engine/feed-health.store';
 
 describe('recent prices', () => {
@@ -58,5 +61,29 @@ describe('recent prices', () => {
     expect(store.updateHealth(health).changed).toBe(true);
     expect(store.updateHealth(health).changed).toBe(false);
     expect(store.updateHealth({ ...health, prevDayPx: 11 }).changed).toBe(true);
+  });
+
+  it('reports deribit price source label and null prevDayPx when ENGINE_PRICE_SOURCE=deribit', async () => {
+    const prevSource = process.env.ENGINE_PRICE_SOURCE;
+    try {
+      process.env.ENGINE_PRICE_SOURCE = 'deribit';
+      const find = vi.fn().mockResolvedValue([]);
+      const controller = new PricesController(
+        { find } as any,
+        new FeedHealthStore(),
+      );
+      expect(await controller.recent('NVDA', '0')).toEqual({
+        ticker: 'NVDA',
+        source: DERIBIT_PRICE_SOURCE,
+        prevDayPx: null,
+        points: [],
+      });
+    } finally {
+      if (prevSource === undefined) {
+        delete process.env.ENGINE_PRICE_SOURCE;
+      } else {
+        process.env.ENGINE_PRICE_SOURCE = prevSource;
+      }
+    }
   });
 });

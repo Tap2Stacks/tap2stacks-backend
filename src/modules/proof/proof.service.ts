@@ -1,5 +1,15 @@
-import { Inject, Injectable, Logger, NotFoundException } from '@nestjs/common';
+import {
+  Inject,
+  Injectable,
+  Logger,
+  NotFoundException,
+  Optional,
+} from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
+import {
+  resolveSettlementVoidGapMs,
+  SETTLEMENT_VOID_GAP_MS_TOKEN,
+} from 'src/config/settlement';
 import { DataSource, Repository } from 'typeorm';
 import { Order } from '../order/entities/order.entity';
 import { OrderStatus } from '../order/types';
@@ -20,7 +30,6 @@ import {
 } from './types';
 
 export const PROOF_WINDOW_MS = 300_000;
-export const PROOF_VOID_GAP_MS = 3_000;
 
 @Injectable()
 export class ProofService {
@@ -36,7 +45,14 @@ export class ProofService {
     private readonly priceLogService: PriceLogService,
     @Inject(PROOF_PUBLISHER)
     private readonly publisher: ProofPublisher,
+    @Optional()
+    @Inject(SETTLEMENT_VOID_GAP_MS_TOKEN)
+    private readonly settlementVoidGapMs?: number,
   ) {}
+
+  private getSettlementVoidGapMs(): number {
+    return this.settlementVoidGapMs ?? resolveSettlementVoidGapMs();
+  }
 
   async runNextWindow(
     nowMs: number = Date.now(),
@@ -181,7 +197,7 @@ export class ProofService {
     }
 
     const priceLogIndexes = await this.findCoveringPriceLogIndexes(
-      Number(order.cellTimeStart) - PROOF_VOID_GAP_MS,
+      Number(order.cellTimeStart) - this.getSettlementVoidGapMs(),
       Number(order.cellTimeEnd),
     );
 

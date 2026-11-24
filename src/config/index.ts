@@ -1,6 +1,7 @@
 import * as dotenv from 'dotenv';
 import * as Joi from 'joi';
 import { DEFAULT_CORS_ORIGINS, parseCorsOrigins } from '../libs/cors';
+import { DEFAULT_SETTLEMENT_VOID_GAP_MS } from './settlement';
 
 dotenv.config();
 
@@ -21,6 +22,13 @@ export const envVarsSchema = Joi.object()
 
     ENGINE_URL: Joi.string().required(),
     ENGINE_TOKEN: Joi.string().required(),
+    ENGINE_PRICE_SOURCE: Joi.string()
+      .valid('hyperliquid', 'deribit')
+      .default('hyperliquid'),
+    SETTLEMENT_VOID_GAP_MS: Joi.number()
+      .integer()
+      .min(1)
+      .default(DEFAULT_SETTLEMENT_VOID_GAP_MS),
 
     RPC_URL: Joi.string().required(),
     VAULT_ADDRESS: Joi.string().allow('').default(''),
@@ -73,6 +81,10 @@ export function parseEnv(rawEnv: NodeJS.ProcessEnv = process.env) {
     engine: {
       url: envVars.ENGINE_URL as string,
       token: envVars.ENGINE_TOKEN as string,
+      priceSource: envVars.ENGINE_PRICE_SOURCE as 'hyperliquid' | 'deribit',
+    },
+    settlement: {
+      voidGapMs: Number(envVars.SETTLEMENT_VOID_GAP_MS),
     },
     web3: {
       rpc: envVars.RPC_URL as string,

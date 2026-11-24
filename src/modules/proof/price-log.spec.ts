@@ -110,4 +110,46 @@ describe('recomputeStatus (verify-leaf)', () => {
 
     expect(recomputeStatus(lostLeaf, priceLogLines)).toBe('LOST');
   });
+
+  it('uses SETTLEMENT_VOID_GAP_MS (and explicit voidGapMs override) to break segments consistently with settlement', () => {
+    const crossingLeaf: CanonicalSettledOrder = {
+      schema: 'tap2stacks.settledOrder.v1',
+      orderId: 'user-1:nvda:3',
+      userId: '0x1111111111111111111111111111111111111111',
+      marketId: 'NVDA',
+      ticker: 'NVDA',
+      status: 'WON',
+      amount: '10',
+      rewardRate: '1.9',
+      settledAt: 1700000006000,
+      settledWin: true,
+      cellTimeStart: 1700000005000,
+      cellTimeEnd: 1700000010000,
+      lowerPrice: '157.40',
+      upperPrice: '157.60',
+    };
+    // 2000 ms gap between 1700000004000 (157.00) and 1700000006000 (158.00)
+    const gapLines = [
+      '{"ticker":"NVDA","tsMs":1700000004000,"price":"157.000000"}',
+      '{"ticker":"NVDA","tsMs":1700000006000,"price":"158.000000"}',
+      '{"ticker":"NVDA","tsMs":1700000011000,"price":"158.500000"}',
+    ];
+
+    // At default 3000 ms, segment crosses [157.40, 157.60] -> WON.
+    expect(recomputeStatus(crossingLeaf, gapLines)).toBe('WON');
+    // At 1500 ms void gap, segment is broken and 158.00 alone misses -> LOST.
+    expect(recomputeStatus(crossingLeaf, gapLines, 1500)).toBe('LOST');
+
+    const prevEnv = process.env.SETTLEMENT_VOID_GAP_MS;
+    try {
+      process.env.SETTLEMENT_VOID_GAP_MS = '1500';
+      expect(recomputeStatus(crossingLeaf, gapLines)).toBe('LOST');
+    } finally {
+      if (prevEnv === undefined) {
+        delete process.env.SETTLEMENT_VOID_GAP_MS;
+      } else {
+        process.env.SETTLEMENT_VOID_GAP_MS = prevEnv;
+      }
+    }
+  });
 });

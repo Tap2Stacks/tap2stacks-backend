@@ -655,4 +655,50 @@ describe('OrderService settlement & void', () => {
       reason: 'CELL_LIMIT',
     });
   });
+
+  it('uses configured SETTLEMENT_VOID_GAP_MS instead of a hard-coded 3000 ms threshold', async () => {
+    const tightService = new OrderService(
+      orderRepository as any,
+      accountService as any,
+      events as any,
+      feedHealthStore,
+      exposureTracker,
+      engineClient as any,
+      SIGNER_KEY,
+      1500,
+    );
+
+    const gridTs = baseWindowStart - 10_000;
+    vi.setSystemTime(new Date(gridTs + 50));
+    const unsigned: Omit<Cell, 'gridSignature'> = {
+      ticker: 'NVDA',
+      gridTs,
+      startTs: baseWindowStart,
+      endTs: baseWindowEnd,
+      lowerPrice: '157.50',
+      upperPrice: '157.53',
+      rewardRate: '2.3100',
+    };
+    const order = await tightService.placeOrder('user-1', {
+      marketId: 'NVDA',
+      amount: '10',
+      cell: { ...unsigned, gridSignature: signCell(unsigned, SIGNER_KEY) },
+    });
+
+    await tightService.handleSample({
+      ticker: 'NVDA',
+      tsMs: baseWindowStart + 500,
+      price: 158.0,
+    });
+    // 2000ms gap: <= 3000ms default, but > 1500ms configured void gap -> must void.
+    await tightService.handleSample({
+      ticker: 'NVDA',
+      tsMs: baseWindowStart + 2500,
+      price: 157.51,
+    });
+
+    expect(order.status).toBe(OrderStatus.VOIDED);
+    expect(accountService.voidBet).toHaveBeenCalledTimes(1);
+    expect(accountService.settleBet).not.toHaveBeenCalled();
+  });
 });

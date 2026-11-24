@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { env } from 'src/config';
+import { SETTLEMENT_VOID_GAP_MS_TOKEN } from 'src/config/settlement';
 import { PriceSample } from '../engine/price-sample.entity';
 import { FeedModule } from '../feed/feed.module';
 import { Order } from '../order/entities/order.entity';
@@ -39,6 +40,10 @@ import {
     {
       provide: PROOF_PUBLISHER,
       useExisting: BaseProofPublisher,
+    },
+    {
+      provide: SETTLEMENT_VOID_GAP_MS_TOKEN,
+      useFactory: () => env.settlement.voidGapMs,
     },
   ],
   controllers: [ProofController],
