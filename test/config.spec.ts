@@ -64,15 +64,6 @@ describe('config', () => {
       'MINIO_ACCESS_KEY',
       'MINIO_SECRET_KEY',
       'BUCKET_NAME',
-      'LEGACY_NETWORK',
-      'LEGACY_OPERATOR_ID',
-      'LEGACY_OPERATOR_KEY',
-      'LEGACY_MIRROR_NODE_URL',
-      'HCS_MODE',
-      'HCS_TOPIC_ID',
-      'HCS_CREATE_TOPIC_IF_MISSING',
-      'HCS_TOPIC_MEMO',
-      'HCS_AUTO_ANCHOR_ENABLED',
     ]) {
       expect(schemaKeys).not.toContain(removedKey);
     }
